@@ -15,11 +15,13 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin {
-  Map<DateTime, List<String>> _events = {};
+  Map<DateTime, Set<MuscleGroup>> _workoutsByDate = {}; // Changed to track workout types
   late TabController _tabController;
   Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
   Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
   bool _isLoadingProgress = false;
+  Set<String> _expandedExercises = {}; // Track which exercises show full history
+  static const int _defaultHistoryLimit = 10;
 
   @override
   void initState() {
@@ -51,16 +53,40 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   }
 
   void _loadWorkoutDates() async {
-    final dates = await LocalDB.getLoggedDates();
-    final events = <DateTime, List<String>>{};
+    final db = await LocalDB.database;
+    final logs = await db.query('workout_logs', orderBy: 'date DESC');
 
-    for (var date in dates) {
-      final clean = DateTime(date.year, date.month, date.day);
-      events[clean] = ['Workout'];
+    final workoutsByDate = <DateTime, Set<MuscleGroup>>{};
+
+    for (var log in logs) {
+      final dateStr = log['date'] as String;
+      final date = DateTime.parse(dateStr);
+      final cleanDate = DateTime(date.year, date.month, date.day);
+
+      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+
+      // Initialize set for this date if not exists
+      workoutsByDate.putIfAbsent(cleanDate, () => <MuscleGroup>{});
+
+      for (var item in exercisesJson) {
+        if (item is Map) {
+          if (item['isCore'] == true) {
+            // Core workout
+            workoutsByDate[cleanDate]!.add(MuscleGroup.core);
+          } else {
+            // Regular exercise
+            final exercise = Exercise.fromJson(item as Map<String, dynamic>);
+            // Only count non-skipped exercises
+            if (!exercise.isSkipped) {
+              workoutsByDate[cleanDate]!.add(exercise.muscleGroup);
+            }
+          }
+        }
+      }
     }
 
     setState(() {
-      _events = events;
+      _workoutsByDate = workoutsByDate;
     });
   }
 
@@ -81,7 +107,8 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
       final regularExercises = _filterRegularExercises(exercisesJson);
 
       for (var exercise in regularExercises) {
-        if (exercise.weight != null && exercise.completedSets.isNotEmpty) {
+        // Use utility function to check if exercise was actually completed
+        if (isExerciseCompleted(exercise)) {
           final entry = ExerciseHistory(
             date: dateStr,
             weight: exercise.weight!,
@@ -104,9 +131,16 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     });
   }
 
-  List<String> _getEventsForDay(DateTime day) {
+  // Get workout types for a specific day
+  Set<MuscleGroup> _getWorkoutsForDay(DateTime day) {
     final key = DateTime(day.year, day.month, day.day);
-    return _events[key] ?? [];
+    return _workoutsByDate[key] ?? {};
+  }
+
+  // Event loader for calendar - returns non-empty list if workouts exist
+  List<String> _getEventsForDay(DateTime day) {
+    final workouts = _getWorkoutsForDay(day);
+    return workouts.isEmpty ? [] : ['Workout'];
   }
 
   Future<void> _showRoutineForDate(DateTime date) async {
@@ -206,8 +240,32 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: DateTime.now(),
           eventLoader: _getEventsForDay,
-          calendarStyle: CalendarStyle(
-            markerDecoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle),
+          calendarBuilders: CalendarBuilders(
+            markerBuilder: (context, date, events) {
+              final workouts = _getWorkoutsForDay(date);
+              if (workouts.isEmpty) return null;
+
+              // Create a dot for each workout type
+              final dots = workouts.map((muscleGroup) {
+                return Container(
+                  width: 6,
+                  height: 6,
+                  margin: EdgeInsets.symmetric(horizontal: 0.5),
+                  decoration: BoxDecoration(
+                    color: WorkoutColors.forMuscleGroup(muscleGroup),
+                    shape: BoxShape.circle,
+                  ),
+                );
+              }).toList();
+
+              return Positioned(
+                bottom: 1,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: dots,
+                ),
+              );
+            },
           ),
           headerStyle: HeaderStyle(
             formatButtonVisible: false, // hide the "2 weeks" / "Month" button
@@ -216,7 +274,47 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
             _showRoutineForDate(selectedDay);
           },
         ),
+        SizedBox(height: 16),
+        // Legend for calendar colors
+        _buildColorLegend(),
         PandaStreakWidget(),
+      ],
+    );
+  }
+
+  Widget _buildColorLegend() {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        alignment: WrapAlignment.center,
+        children: [
+          _buildLegendItem('Upper Body', WorkoutColors.upperBody),
+          _buildLegendItem('Lower Body', WorkoutColors.lowerBody),
+          _buildLegendItem('Core', WorkoutColors.core),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendItem(String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+        ),
       ],
     );
   }
@@ -257,6 +355,15 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     final sortedHistory = List<ExerciseHistory>.from(history)
       ..sort((a, b) => b.date.compareTo(a.date));
 
+    // Check if this exercise is expanded
+    final isExpanded = _expandedExercises.contains(exerciseName);
+    final hasMoreEntries = sortedHistory.length > _defaultHistoryLimit;
+
+    // Limit history to 10 entries unless expanded
+    final displayedHistory = isExpanded
+        ? sortedHistory
+        : sortedHistory.take(_defaultHistoryLimit).toList();
+
     return Card(
       margin: EdgeInsets.only(bottom: 16),
       elevation: 2,
@@ -268,6 +375,11 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
             Text(
               exerciseName,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Total: ${sortedHistory.length} workout${sortedHistory.length == 1 ? '' : 's'}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
             SizedBox(height: 12),
             SingleChildScrollView(
@@ -283,7 +395,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                   DataColumn(label: Text('Weight', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Sets x Reps', style: TextStyle(fontWeight: FontWeight.bold))),
                 ],
-                rows: sortedHistory.map((record) {
+                rows: displayedHistory.map((record) {
                   final dateStr = _formatDate(record.date);
                   final weightStr = '${formatWeight(record.weight ?? 0)}lb';
                   final setsStr = record.completedSets.map((reps) => reps.toString()).join(', ');
@@ -296,6 +408,34 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                 }).toList(),
               ),
             ),
+            // Show "Load More" or "Show Less" button if needed
+            if (hasMoreEntries)
+              Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        if (isExpanded) {
+                          _expandedExercises.remove(exerciseName);
+                        } else {
+                          _expandedExercises.add(exerciseName);
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      isExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                    ),
+                    label: Text(
+                      isExpanded
+                          ? 'Show Less'
+                          : 'Load All (${sortedHistory.length} total)',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

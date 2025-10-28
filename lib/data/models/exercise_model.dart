@@ -40,6 +40,7 @@ class Exercise {
   // Tracking fields (filled in during workout)
   double? weight; // in lbs
   List<int> completedSets; // actual reps completed for each set
+  bool isSkipped; // whether user skipped this exercise
 
   Exercise({
     required this.name,
@@ -51,6 +52,7 @@ class Exercise {
     this.notes = '',
     this.weight,
     List<int>? completedSets,
+    this.isSkipped = false,
   }) : completedSets = completedSets ?? [];
 
   Map<String, dynamic> toJson() {
@@ -64,6 +66,7 @@ class Exercise {
       'notes': notes,
       'weight': weight,
       'completedSets': completedSets,
+      'isSkipped': isSkipped,
     };
   }
 
@@ -78,6 +81,7 @@ class Exercise {
       notes: json['notes'] ?? '',
       weight: json['weight']?.toDouble(),
       completedSets: List<int>.from(json['completedSets'] ?? []),
+      isSkipped: json['isSkipped'] ?? false,
     );
   }
 
@@ -92,6 +96,7 @@ class Exercise {
     String? notes,
     double? weight,
     List<int>? completedSets,
+    bool? isSkipped,
   }) {
     return Exercise(
       name: name ?? this.name,
@@ -103,6 +108,7 @@ class Exercise {
       notes: notes ?? this.notes,
       weight: weight ?? this.weight,
       completedSets: completedSets ?? this.completedSets,
+      isSkipped: isSkipped ?? this.isSkipped,
     );
   }
 
@@ -113,6 +119,20 @@ class Exercise {
     final setsStr = completedSets.map((r) => '$sets×$r').join(', ');
     return '$name: $weight lbs → $setsStr';
   }
+}
+
+/// Utility function to filter out skipped exercises from a list
+/// Used for progressive overload calculations, history tracking, and statistics
+List<Exercise> filterCompletedExercises(List<Exercise> exercises) {
+  return exercises.where((exercise) => !exercise.isSkipped).toList();
+}
+
+/// Utility function to check if an exercise was actually completed
+/// (has weight and completed sets, and was not skipped)
+bool isExerciseCompleted(Exercise exercise) {
+  return !exercise.isSkipped &&
+         exercise.weight != null &&
+         exercise.completedSets.isNotEmpty;
 }
 
 class WorkoutRoutine {

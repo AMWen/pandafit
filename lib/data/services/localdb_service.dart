@@ -195,7 +195,8 @@ class LocalDB {
         orElse: () => Exercise(name: '', muscleGroup: MuscleGroup.upperBody), // dummy
       );
 
-      if (exercise.name == exerciseName && exercise.weight != null) {
+      // Only include exercises that were actually completed (not skipped)
+      if (exercise.name == exerciseName && !exercise.isSkipped && exercise.weight != null) {
         history.add(ExerciseHistory(
           date: log['date'] as String,
           weight: exercise.weight,

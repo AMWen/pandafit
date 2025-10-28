@@ -8,6 +8,26 @@ Color secondaryColor = Colors.grey[200]!;
 Color dullColor = Colors.grey[500]!;
 double pandaWidth = 200;
 
+// Calendar marker colors for different workout types
+class WorkoutColors {
+  static const Color upperBody = Color(0xFF2196F3); // Blue
+  static const Color lowerBody = Color(0xFFFF9800); // Orange
+  static const Color core = Color(0xFF4CAF50); // Green
+  static const Color mixed = Color(0xFF9C27B0); // Purple (when multiple types completed)
+
+  // Helper to get color for a specific muscle group
+  static Color forMuscleGroup(MuscleGroup group) {
+    switch (group) {
+      case MuscleGroup.upperBody:
+        return upperBody;
+      case MuscleGroup.lowerBody:
+        return lowerBody;
+      case MuscleGroup.core:
+        return core;
+    }
+  }
+}
+
 // Format weight to show decimals only when necessary
 String formatWeight(double weight) {
   if (weight == weight.roundToDouble()) {

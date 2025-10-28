@@ -171,6 +171,20 @@ class _HomeScreenState extends State<HomeScreen> {
     exerciseUpdates[updated.name] = updated;
   }
 
+  void _skipExercise(Exercise exercise) {
+    setState(() {
+      final skipped = exercise.copyWith(isSkipped: true);
+      exerciseUpdates[exercise.name] = skipped;
+    });
+  }
+
+  void _restoreExercise(Exercise exercise) {
+    setState(() {
+      final restored = exercise.copyWith(isSkipped: false);
+      exerciseUpdates[exercise.name] = restored;
+    });
+  }
+
   Future<void> _completeWorkout() async {
     if (currentWorkout == null) return;
 
@@ -449,6 +463,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 exercise: displayExercise,
                 onUpdate: _updateExercise,
                 onLaunchVideo: () => _launchUrl(exercise.videoLink),
+                onSkip: () => _skipExercise(displayExercise),
+                onRestore: () => _restoreExercise(displayExercise),
               );
             },
           ),

@@ -365,10 +365,10 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         : sortedHistory.take(_defaultHistoryLimit).toList();
 
     return Card(
-      margin: EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: 4),
       elevation: 2,
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -376,20 +376,15 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
               exerciseName,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 4),
-            Text(
-              'Total: ${sortedHistory.length} workout${sortedHistory.length == 1 ? '' : 's'}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-            SizedBox(height: 12),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowHeight: 35,
-                dataRowMinHeight: 30,
-                dataRowMaxHeight: 45,
-                columnSpacing: 20,
+                headingRowHeight: 32,
+                dataRowMinHeight: 28,
+                dataRowMaxHeight: 35,
+                columnSpacing: 50,
                 horizontalMargin: 0,
+                dividerThickness: 0,
                 columns: [
                   DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Weight', style: TextStyle(fontWeight: FontWeight.bold))),

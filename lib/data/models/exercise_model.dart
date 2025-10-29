@@ -1,3 +1,6 @@
+// Sets is always 3 for all exercises
+const int numSets = 3;
+
 enum MuscleGroup {
   upperBody,
   lowerBody,
@@ -32,7 +35,6 @@ class Exercise {
   final String name;
   final MuscleGroup muscleGroup;
   final List<String> targetMuscles;
-  final int sets;
   final String reps; // e.g., "8-12" or "10-15"
   final String videoLink;
   final String notes;
@@ -41,18 +43,19 @@ class Exercise {
   double? weight; // in lbs
   List<int> completedSets; // actual reps completed for each set
   bool isSkipped; // whether user skipped this exercise
+  String? motivationalMessage; // optional progression hint message
 
   Exercise({
     required this.name,
     required this.muscleGroup,
     this.targetMuscles = const [],
-    this.sets = 3,
     this.reps = "8-12",
     this.videoLink = '',
     this.notes = '',
     this.weight,
     List<int>? completedSets,
     this.isSkipped = false,
+    this.motivationalMessage,
   }) : completedSets = completedSets ?? [];
 
   Map<String, dynamic> toJson() {
@@ -60,7 +63,6 @@ class Exercise {
       'name': name,
       'muscleGroup': muscleGroupToString(muscleGroup),
       'targetMuscles': targetMuscles,
-      'sets': sets,
       'reps': reps,
       'videoLink': videoLink,
       'notes': notes,
@@ -75,7 +77,6 @@ class Exercise {
       name: json['name'],
       muscleGroup: stringToMuscleGroup(json['muscleGroup']),
       targetMuscles: List<String>.from(json['targetMuscles'] ?? []),
-      sets: json['sets'] ?? 3,
       reps: json['reps'] ?? "8-12",
       videoLink: json['videoLink'] ?? '',
       notes: json['notes'] ?? '',
@@ -90,41 +91,35 @@ class Exercise {
     String? name,
     MuscleGroup? muscleGroup,
     List<String>? targetMuscles,
-    int? sets,
     String? reps,
     String? videoLink,
     String? notes,
     double? weight,
     List<int>? completedSets,
     bool? isSkipped,
+    String? motivationalMessage,
   }) {
     return Exercise(
       name: name ?? this.name,
       muscleGroup: muscleGroup ?? this.muscleGroup,
       targetMuscles: targetMuscles ?? this.targetMuscles,
-      sets: sets ?? this.sets,
       reps: reps ?? this.reps,
       videoLink: videoLink ?? this.videoLink,
       notes: notes ?? this.notes,
       weight: weight ?? this.weight,
       completedSets: completedSets ?? this.completedSets,
       isSkipped: isSkipped ?? this.isSkipped,
+      motivationalMessage: motivationalMessage ?? this.motivationalMessage,
     );
   }
 
   String formatSummary() {
     if (weight == null || completedSets.isEmpty) {
-      return '$name: $sets sets of $reps reps';
+      return '$name: $numSets sets of $reps reps';
     }
-    final setsStr = completedSets.map((r) => '$sets×$r').join(', ');
+    final setsStr = completedSets.map((r) => '$numSets×$r').join(', ');
     return '$name: $weight lbs → $setsStr';
   }
-}
-
-/// Utility function to filter out skipped exercises from a list
-/// Used for progressive overload calculations, history tracking, and statistics
-List<Exercise> filterCompletedExercises(List<Exercise> exercises) {
-  return exercises.where((exercise) => !exercise.isSkipped).toList();
 }
 
 /// Utility function to check if an exercise was actually completed

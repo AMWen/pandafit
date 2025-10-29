@@ -20,7 +20,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
   Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
   bool _isLoadingProgress = false;
-  Set<String> _expandedExercises = {}; // Track which exercises show full history
+  final Set<String> _expandedExercises = {}; // Track which exercises show full history
   static const int _defaultHistoryLimit = 10;
 
   @override
@@ -232,10 +232,11 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   }
 
   Widget _buildCalendarView() {
-    return Column(
-      children: [
-        SizedBox(height: 16),
-        TableCalendar(
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          SizedBox(height: 16),
+          TableCalendar(
           firstDay: DateTime.utc(2025, 1, 1),
           lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: DateTime.now(),
@@ -274,11 +275,12 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
             _showRoutineForDate(selectedDay);
           },
         ),
-        SizedBox(height: 16),
-        // Legend for calendar colors
-        _buildColorLegend(),
-        PandaStreakWidget(),
-      ],
+          SizedBox(height: 16),
+          // Legend for calendar colors
+          _buildColorLegend(),
+          PandaStreakWidget(),
+        ],
+      ),
     );
   }
 
@@ -503,7 +505,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                   )
                 else
                   Text(
-                    '${exercise.sets} sets of ${exercise.reps} reps (not completed)',
+                    '$numSets sets of ${exercise.reps} reps (not completed)',
                     style: TextStyle(color: Colors.grey),
                   ),
               ],

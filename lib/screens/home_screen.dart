@@ -4,12 +4,16 @@ import 'package:url_launcher/url_launcher.dart';
 import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
+import '../data/models/custom_exercise_preferences.dart';
 import '../data/services/localdb_service.dart';
 import '../data/services/workout_generator.dart';
 import '../data/services/core_workout_generator.dart';
+import '../data/services/workout_preferences_service.dart';
 import '../data/widgets/exercise_card_widget.dart';
 import '../data/widgets/core_workout_card_widget.dart';
+import '../utils/ui_helpers.dart';
 import 'history_screen.dart';
+import 'workout_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -141,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
       for (var exercise in workout.exercises) {
         // Parse the low end of rep range for auto-fill (e.g., "8-12" -> 8, "10-12" -> 10)
         final lowEndReps = _getLowEndReps(exercise.reps);
-        final defaultCompletedSets = List.generate(exercise.sets, (_) => lowEndReps);
+        final defaultCompletedSets = List.generate(numSets, (_) => lowEndReps);
 
         exerciseUpdates[exercise.name] = exercise.copyWith(
           completedSets: defaultCompletedSets,
@@ -355,9 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: Duration(milliseconds: 800)),
-    );
+    showSnackbar(context, message, duration: const Duration(milliseconds: 800));
   }
 
 
@@ -370,48 +372,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return Column(
         children: [
           // Completion message
-          Container(
-            margin: EdgeInsets.all(16),
-            padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.green[300]!, width: 2),
-            ),
-            child: Column(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green[700], size: 48),
-                SizedBox(height: 12),
-                Text(
-                  '$targetName completed!',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[900],
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  "You're killing it!",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.green[700],
-                  ),
-                ),
-                SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () => _undoCompletion(selectedTarget!),
-                  icon: Icon(Icons.undo, size: 14),
-                  label: Text('undo', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.grey[600],
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    minimumSize: Size(0, 0),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ],
-            ),
+          buildCompletionMessage(
+            title: '$targetName completed!',
+            onUndo: () => _undoCompletion(selectedTarget!),
           ),
 
           // Completed workout exercises
@@ -453,36 +416,50 @@ class _HomeScreenState extends State<HomeScreen> {
         // Exercise list
         Expanded(
           child: ListView.builder(
-            itemCount: currentWorkout!.exercises.length,
+            itemCount: currentWorkout!.exercises.length + 1, // +1 for add button at end
             itemBuilder: (context, index) {
-              final exercise = currentWorkout!.exercises[index];
-              // Use updated exercise if available
-              final displayExercise = exerciseUpdates[exercise.name] ?? exercise;
+              // Show exercises first
+              if (index < currentWorkout!.exercises.length) {
+                final exercise = currentWorkout!.exercises[index];
+                // Use updated exercise if available
+                final displayExercise = exerciseUpdates[exercise.name] ?? exercise;
 
-              return ExerciseCard(
-                exercise: displayExercise,
-                onUpdate: _updateExercise,
-                onLaunchVideo: () => _launchUrl(exercise.videoLink),
-                onSkip: () => _skipExercise(displayExercise),
-                onRestore: () => _restoreExercise(displayExercise),
+                return ExerciseCard(
+                  exercise: displayExercise,
+                  onUpdate: _updateExercise,
+                  onLaunchVideo: () => _launchUrl(exercise.videoLink),
+                  onSkip: () => _skipExercise(displayExercise),
+                  onRestore: () => _restoreExercise(displayExercise),
+                );
+              }
+
+              // Show circular add button at the end
+              return Center(
+                child: FloatingActionButton.small(
+                  onPressed: _showAddExerciseDialog,
+                  backgroundColor: primaryColor,
+                  shape: CircleBorder(),
+                  child: Icon(Icons.add, color: Colors.white, size: 20),
+                ),
               );
             },
           ),
         ),
 
-        // Complete workout button - always visible
+        // Complete Workout button only
         Padding(
           padding: EdgeInsets.all(16),
-          child: ElevatedButton(
-            onPressed: _completeWorkout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              minimumSize: Size(double.infinity, 50),
-            ),
-            child: Text(
-              'Complete Workout',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          child: Center(
+            child: ElevatedButton(
+              onPressed: _completeWorkout,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(
+                'Complete Workout',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ),
@@ -514,48 +491,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // Today's workout section
             if (isCoreCompleted && completedCoreWorkoutToday != null) ...[
               // Completion message
-              Container(
-                margin: EdgeInsets.only(bottom: 16),
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green[300]!, width: 2),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.green[700], size: 48),
-                    SizedBox(height: 12),
-                    Text(
-                      'Core workout completed!',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green[900],
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      "You're killing it!",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.green[700],
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: _undoCoreCompletion,
-                      icon: Icon(Icons.undo, size: 14),
-                      label: Text('undo', style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.grey[600],
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size(0, 0),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
+              buildCompletionMessage(
+                title: 'Core workout completed!',
+                onUndo: _undoCoreCompletion,
+                margin: const EdgeInsets.only(bottom: 16),
               ),
               Text(
                 'Today: ${completedCoreWorkoutToday!.exercisesPerSet} exercises × ${completedCoreWorkoutToday!.sets} sets',
@@ -676,6 +615,192 @@ class _HomeScreenState extends State<HomeScreen> {
       title: title,
       isLoading: isLoading,
       workoutView: _buildWorkoutView(),
+      onOpenSettings: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => WorkoutSettingsScreen()),
+        );
+        // Regenerate workout after settings change
+        if (selectedTarget != null) {
+          _generateWorkout(selectedTarget!);
+        }
+      },
+    );
+  }
+
+  void _showAddExerciseDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _AddExerciseToWorkoutDialog(
+        muscleGroup: selectedTarget!,
+        currentExercises: currentWorkout?.exercises ?? [],
+        onAdd: (exercise) {
+          setState(() {
+            if (currentWorkout != null) {
+              // Check if exercise already exists
+              final isDuplicate = currentWorkout!.exercises.any((e) => e.name == exercise.name);
+
+              if (isDuplicate) {
+                _showSnackbar('Exercise already in workout');
+                return;
+              }
+
+              // Add exercise to current workout
+              currentWorkout = WorkoutRoutine(
+                targetArea: currentWorkout!.targetArea,
+                exercises: [...currentWorkout!.exercises, exercise],
+              );
+              // Initialize tracking for new exercise
+              exerciseUpdates[exercise.name] = exercise;
+              _showSnackbar('Exercise added to workout');
+            }
+          });
+        },
+      ),
+    );
+  }
+}
+
+// Dialog for adding exercises to current workout
+class _AddExerciseToWorkoutDialog extends StatefulWidget {
+  final MuscleGroup muscleGroup;
+  final List<Exercise> currentExercises;
+  final Function(Exercise) onAdd;
+
+  const _AddExerciseToWorkoutDialog({
+    required this.muscleGroup,
+    required this.currentExercises,
+    required this.onAdd,
+  });
+
+  @override
+  State<_AddExerciseToWorkoutDialog> createState() => _AddExerciseToWorkoutDialogState();
+}
+
+class _AddExerciseToWorkoutDialogState extends State<_AddExerciseToWorkoutDialog> {
+  List<Exercise> _availableExercises = [];
+  List<UserCustomExercise> _customExercises = [];
+  Exercise? _selectedExercise;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExercises();
+  }
+
+  Future<void> _loadExercises() async {
+    // Get all exercises for the selected muscle group
+    List<Exercise> allExercises = [];
+
+    if (widget.muscleGroup == MuscleGroup.upperBody) {
+      allExercises.addAll(ExerciseDatabase.chestExercises);
+      allExercises.addAll(ExerciseDatabase.backExercises);
+      allExercises.addAll(ExerciseDatabase.shoulderExercises);
+      allExercises.addAll(ExerciseDatabase.armExercises);
+    } else if (widget.muscleGroup == MuscleGroup.lowerBody) {
+      allExercises.addAll(ExerciseDatabase.legExercises);
+    }
+
+    // Get user custom exercises
+    final customExercises = await WorkoutPreferencesService.getUserCustomExercises();
+    final filteredCustom = customExercises
+        .where((ex) => ex.muscleGroup == widget.muscleGroup)
+        .toList();
+
+    // Filter out exercises already in the current workout
+    final currentExerciseNames = widget.currentExercises.map((e) => e.name).toSet();
+    final availableExercises = allExercises
+        .where((ex) => !currentExerciseNames.contains(ex.name))
+        .toList();
+    final availableCustom = filteredCustom
+        .where((ex) => !currentExerciseNames.contains(ex.name))
+        .toList();
+
+    setState(() {
+      _availableExercises = availableExercises;
+      _customExercises = availableCustom;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return AlertDialog(
+        content: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return AlertDialog(
+      title: Text('Add Exercise to Workout'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Select an exercise to add to your current workout:',
+              style: TextStyle(fontSize: 14),
+            ),
+            SizedBox(height: 16),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  // Built-in exercises
+                  if (_availableExercises.isNotEmpty) ...[
+                    Text('Standard Exercises', style: TextStyles.mediumText),
+                    ..._availableExercises.map((exercise) => RadioListTile<Exercise>(
+                      title: Text(exercise.name),
+                      subtitle: Text(exercise.targetMuscles.join(', ')),
+                      value: exercise,
+                      groupValue: _selectedExercise,
+                      onChanged: (value) => setState(() => _selectedExercise = value),
+                    )),
+                  ],
+                  // Custom exercises
+                  if (_customExercises.isNotEmpty) ...[
+                    SizedBox(height: 8),
+                    Text('Your Custom Exercises', style: TextStyles.mediumText),
+                    ..._customExercises.map((customEx) {
+                      final exercise = Exercise(
+                        name: customEx.name,
+                        muscleGroup: customEx.muscleGroup, // Use the getter
+                        targetMuscles: customEx.targetMuscles,
+                        reps: customEx.reps,
+                        videoLink: customEx.videoLink,
+                        notes: customEx.notes,
+                        weight: customEx.beginnerWeight,
+                      );
+                      return RadioListTile<Exercise>(
+                        title: Text(exercise.name),
+                        subtitle: Text('${exercise.reps} reps - Custom'),
+                        value: exercise,
+                        groupValue: _selectedExercise,
+                        onChanged: (value) => setState(() => _selectedExercise = value),
+                      );
+                    }),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _selectedExercise == null ? null : () {
+            widget.onAdd(_selectedExercise!);
+            Navigator.pop(context);
+          },
+          child: Text('Add Exercise'),
+        ),
+      ],
     );
   }
 }
@@ -685,11 +810,13 @@ class _WorkoutPageWidget extends StatefulWidget {
   final String title;
   final bool isLoading;
   final Widget workoutView;
+  final VoidCallback? onOpenSettings;
 
   const _WorkoutPageWidget({
     required this.title,
     required this.isLoading,
     required this.workoutView,
+    this.onOpenSettings,
   });
 
   @override
@@ -707,6 +834,14 @@ class _WorkoutPageWidgetState extends State<_WorkoutPageWidget> with AutomaticKe
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        actions: [
+          if (widget.onOpenSettings != null)
+            IconButton(
+              icon: Icon(Icons.settings),
+              onPressed: widget.onOpenSettings,
+              tooltip: 'Workout Settings',
+            ),
+        ],
       ),
       body: widget.isLoading
           ? Center(child: CircularProgressIndicator())

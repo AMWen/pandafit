@@ -9,6 +9,16 @@ import '../models/exercise_model.dart';
 import '../models/core_exercise_model.dart';
 import '../../utils/file_utils.dart';
 
+class WeightSuggestion {
+  final double weight;
+  final String? motivationalMessage;
+
+  WeightSuggestion({
+    required this.weight,
+    this.motivationalMessage,
+  });
+}
+
 class ExerciseHistory {
   final String date;
   final double? weight;
@@ -211,7 +221,7 @@ class LocalDB {
   }
 
   // Get smart weight suggestion based on history with progression hint
-  static Future<double?> getSmartWeightSuggestion(String exerciseName, {String repRange = "8-12"}) async {
+  static Future<WeightSuggestion?> getSmartWeightSuggestion(String exerciseName, {String repRange = "8-12"}) async {
     final history = await getExerciseHistory(exerciseName, limit: 3);
 
     if (history.isEmpty) {
@@ -245,11 +255,20 @@ class LocalDB {
     // Progressive overload criteria:
     // 1. If average reps >= high end of range, suggest +5 lbs
     // 2. If done exercise 3+ times at similar weight, suggest +5 lbs
-    if (avgReps >= highEndReps || timesAtSimilarWeight >= 3) {
-      return lastWeight + 5.0;
+    String? motivationalMessage;
+    double suggestedWeight;
+
+    if (avgReps >= highEndReps) {
+      suggestedWeight = lastWeight + 5.0;
+      motivationalMessage = "You're crushing $lastWeight lbs with high reps! Try $suggestedWeight lbs today for progression.";
+    } else if (timesAtSimilarWeight >= 3) {
+      suggestedWeight = lastWeight + 5.0;
+      motivationalMessage = "You've done $lastWeight lbs for $timesAtSimilarWeight workouts. Time to level up to $suggestedWeight lbs!";
+    } else {
+      suggestedWeight = lastWeight;
     }
 
-    return lastWeight;
+    return WeightSuggestion(weight: suggestedWeight, motivationalMessage: motivationalMessage);
   }
 
   // Parse the high end of the rep range (e.g., "8-12" -> 12, "12-15" -> 15)
@@ -259,37 +278,6 @@ class LocalDB {
       return int.tryParse(matches.elementAt(1).group(0)!) ?? 10;
     }
     return int.tryParse(matches.first.group(0)!) ?? 10;
-  }
-
-  // Get progression hint message for uisforser feedback
-  static Future<String?> getProgressionHint(String exerciseName) async {
-    final history = await getExerciseHistory(exerciseName, limit: 3);
-
-    if (history.isEmpty) return null;
-
-    final lastWeight = history.first.weight;
-    final lastSets = history.first.completedSets;
-
-    if (lastWeight == null || lastSets.isEmpty) return null;
-
-    final avgReps = lastSets.reduce((a, b) => a + b) / lastSets.length;
-
-    // Count how many times at similar weight
-    int timesAtSimilarWeight = 0;
-    for (var record in history) {
-      if (record.weight != null && (record.weight! - lastWeight).abs() <= 2.5) {
-        timesAtSimilarWeight++;
-      }
-    }
-
-    // Generate helpful hint message
-    if (avgReps >= 10) {
-      return "You're crushing $lastWeight lbs with high reps! Try ${lastWeight + 5.0} lbs today for progression.";
-    } else if (timesAtSimilarWeight >= 3) {
-      return "You've done $lastWeight lbs for $timesAtSimilarWeight workouts. Time to level up to ${lastWeight + 5.0} lbs!";
-    }
-
-    return null;
   }
 
   // Fetch all workout logs

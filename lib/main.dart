@@ -1,9 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'screens/history_screen.dart';
 import 'screens/home_screen.dart';
 import 'data/constants.dart';
+import 'data/models/custom_exercise_preferences.dart';
 
-void main() => runApp(MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Hive
+  await Hive.initFlutter();
+
+  // Register Hive adapters
+  Hive.registerAdapter(ExerciseCategoryAdapter());
+  Hive.registerAdapter(CustomExercisePreferenceAdapter());
+  Hive.registerAdapter(UserCustomExerciseAdapter());
+  Hive.registerAdapter(WorkoutGenerationPreferencesAdapter());
+
+  runApp(MyApp());
+}
 
 class SwipeScreens extends StatelessWidget {
   const SwipeScreens({super.key});

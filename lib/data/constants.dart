@@ -37,22 +37,25 @@ String formatWeight(double weight) {
 }
 
 class TextStyles {
-  static TextStyle whiteText = TextStyle(color: Colors.white);
-  static TextStyle mediumText = TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
-  static TextStyle normalText = TextStyle(fontSize: 16);
-  static TextStyle titleText = TextStyle(fontSize: 20, fontWeight: FontWeight.w500);
+  static const TextStyle whiteText = TextStyle(color: Colors.white);
+  static const TextStyle mediumText = TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
+  static const TextStyle normalText = TextStyle(fontSize: 16);
+  static const TextStyle titleText = TextStyle(fontSize: 20, fontWeight: FontWeight.w500);
   static const TextStyle dialogTitle = TextStyle(fontSize: 18, fontWeight: FontWeight.w700);
+  static const TextStyle labelText = TextStyle(fontSize: 15, fontWeight: FontWeight.w600);
+  static const TextStyle inputText = TextStyle(fontSize: 14, fontWeight: FontWeight.normal);
+  static const TextStyle hintText = TextStyle(fontSize: 13, color: Colors.grey, fontStyle: FontStyle.italic);
 }
 
 // Exercise Database - Easy to Extend!
 // To add new exercises: Just add to the appropriate list below
 class ExerciseDatabase {
   // Helper method to create exercises with auto-generated YouTube search links
+  // Sets is always 3 for all exercises
   static Exercise createExercise({
     required String name,
     required MuscleGroup muscleGroup,
     List<String> targetMuscles = const [],
-    int sets = 3,
     String reps = "8-12",
     String notes = "",
     double? beginnerWeight,
@@ -62,7 +65,6 @@ class ExerciseDatabase {
       name: name,
       muscleGroup: muscleGroup,
       targetMuscles: targetMuscles,
-      sets: sets,
       reps: reps,
       videoLink: 'https://www.youtube.com/results?search_query=$searchQuery+dumbbell',
       notes: notes,
@@ -76,7 +78,6 @@ class ExerciseDatabase {
       name: "Incline Dumbbell Press",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Upper Pecs", "Front Delts"],
-      sets: 3,
       reps: "8-12",
       notes: "Set bench to 30-45 degrees. Keep elbows at 45-degree angle from body. Press up and slightly inward at top. Retract shoulder blades throughout.",
       beginnerWeight: 15.0,
@@ -85,7 +86,6 @@ class ExerciseDatabase {
       name: "Flat Dumbbell Press",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Mid Pecs", "Front Delts", "Triceps"],
-      sets: 3,
       reps: "8-12",
       notes: "Lower dumbbells until elbows are at 90 degrees or slightly below chest level. Keep shoulder blades retracted. Press straight up, don't let dumbbells drift over face.",
       beginnerWeight: 15.0,
@@ -94,7 +94,6 @@ class ExerciseDatabase {
       name: "Dumbbell Flys",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Pecs"],
-      sets: 3,
       reps: "10-15",
       notes: "Keep slight bend in elbows (like hugging a tree). Lower until you feel a stretch in chest, don't go too deep. Focus on squeezing chest at top.",
       beginnerWeight: 10.0,
@@ -107,7 +106,6 @@ class ExerciseDatabase {
       name: "Chest-Supported Dumbbell Row",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Mid Back", "Lats"],
-      sets: 3,
       reps: "10-12",
       notes: "Lie face down on incline bench. Pull elbows straight back past your torso. Squeeze shoulder blades together at top. Lead with elbows, not hands.",
       beginnerWeight: 15.0,
@@ -116,7 +114,6 @@ class ExerciseDatabase {
       name: "Single-Arm Dumbbell Row",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Lats", "Mid Back"],
-      sets: 3,
       reps: "10-12",
       notes: "Place knee and hand on bench. Keep back flat and parallel to floor. Pull weight toward hip, not straight up. Keep core tight. Control the descent.",
       beginnerWeight: 15.0,
@@ -125,7 +122,6 @@ class ExerciseDatabase {
       name: "Dumbbell Pullover",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Lats", "Pecs"],
-      sets: 3,
       reps: "10-12",
       notes: "Lie perpendicular on bench (shoulders only). Lower dumbbell behind head until you feel lat stretch. Keep slight bend in elbows. Pull back using lats, not arms.",
       beginnerWeight: 15.0,
@@ -138,7 +134,6 @@ class ExerciseDatabase {
       name: "Dumbbell Shoulder Press",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Front Delts", "Side Delts"],
-      sets: 3,
       reps: "8-12",
       notes: "Start with dumbbells at shoulder height. Press straight up, rotating slightly inward at top. Keep core tight, avoid arching lower back. Lower with control.",
       beginnerWeight: 15.0,
@@ -147,7 +142,6 @@ class ExerciseDatabase {
       name: "Lateral Raises",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Side Delts"],
-      sets: 3,
       reps: "12-15",
       notes: "Keep slight bend in elbows. Raise arms out to sides until parallel to floor. Lead with elbows, pour pinky slightly upward at top. Control descent, don't let weights drop.",
       beginnerWeight: 10.0,
@@ -156,7 +150,6 @@ class ExerciseDatabase {
       name: "Leaning Dumbbell Lateral Raise",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Side Delts"],
-      sets: 3,
       reps: "12-15",
       notes: "Hold onto sturdy support with one hand. Lean away at angle. Raise dumbbell to side, emphasizing the stretch at bottom. Increases range of motion vs standard lateral raise.",
       beginnerWeight: 10.0,
@@ -165,7 +158,6 @@ class ExerciseDatabase {
       name: "Reverse Flys",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Rear Delts", "Upper Back"],
-      sets: 3,
       reps: "12-15",
       notes: "Hinge at hips until torso is near parallel to floor. Keep back flat, slight knee bend. Raise dumbbells out to sides, squeeze shoulder blades. Keep slight elbow bend throughout.",
       beginnerWeight: 10.0,
@@ -178,7 +170,6 @@ class ExerciseDatabase {
       name: "Incline Dumbbell Curls",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Biceps Long Head", "Brachialis"],
-      sets: 3,
       reps: "10-12",
       notes: "Set bench to 45 degrees. Let arms hang straight down with full stretch. Curl up while keeping elbows stationary. Squeeze at top, control the descent. Don't swing.",
       beginnerWeight: 10.0,
@@ -187,7 +178,6 @@ class ExerciseDatabase {
       name: "Preacher Curls",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Biceps Short Head", "Brachialis"],
-      sets: 3,
       reps: "10-12",
       notes: "Rest upper arms on pad, keep armpits tight to top of pad. Curl up while keeping upper arms pressed down. Go to full extension at bottom. Control the negative phase.",
       beginnerWeight: 10.0,
@@ -196,7 +186,6 @@ class ExerciseDatabase {
       name: "Hammer Curls",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Brachialis", "Biceps", "Forearms"],
-      sets: 3,
       reps: "10-12",
       notes: "Hold dumbbells with palms facing each other (neutral grip). Keep elbows tight to sides. Curl straight up without rotating wrists. Squeeze at top, control descent.",
       beginnerWeight: 10.0,
@@ -205,7 +194,6 @@ class ExerciseDatabase {
       name: "Overhead Tricep Extension",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Triceps Long Head"],
-      sets: 3,
       reps: "10-12",
       notes: "Hold dumbbell overhead with both hands. Keep elbows pointed straight up and close to head. Lower behind head until you feel tricep stretch. Extend back up without moving elbows.",
       beginnerWeight: 10.0,
@@ -214,7 +202,6 @@ class ExerciseDatabase {
       name: "Tricep Kickbacks",
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Triceps"],
-      sets: 3,
       reps: "12-15",
       notes: "Hinge at hips, keep back flat. Pin upper arm parallel to floor. Extend elbow fully until arm is straight, squeeze tricep hard. Only forearm should move.",
       beginnerWeight: 10.0,
@@ -227,7 +214,6 @@ class ExerciseDatabase {
       name: "Wide-Stance Bulgarian Split Squat",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Glutes", "Hamstrings"],
-      sets: 3,
       reps: "10-12",
       notes: "Place back foot on bench. Take longer step forward (wider stance). Keep torso upright. Descend until back knee nearly touches ground. Drive through front heel. Emphasizes glutes more than quads.",
       beginnerWeight: 20.0,
@@ -236,7 +222,6 @@ class ExerciseDatabase {
       name: "Narrow-Stance Bulgarian Split Squat",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
-      sets: 3,
       reps: "10-12",
       notes: "Place back foot on bench. Take shorter step forward (narrower stance). Allow front knee to travel forward over toes. Keep torso more upright. Targets quads more than glutes.",
       beginnerWeight: 20.0,
@@ -245,7 +230,6 @@ class ExerciseDatabase {
       name: "Romanian Deadlift",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Hamstrings", "Glutes"],
-      sets: 3,
       reps: "10-12",
       notes: "Hold dumbbells at thighs. Hinge at hips by pushing butt back. Keep back flat, slight knee bend. Lower until you feel hamstring stretch (mid-shin). Squeeze glutes to return. Don't round back.",
       beginnerWeight: 20.0,
@@ -254,7 +238,6 @@ class ExerciseDatabase {
       name: "Goblet Squat",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads", "Glutes"],
-      sets: 3,
       reps: "10-15",
       notes: "Hold dumbbell vertically at chest (like a goblet). Squat down keeping chest up. Push knees out, elbows go between knees. Go deep (below parallel if possible). Drive through heels.",
       beginnerWeight: 20.0,
@@ -263,7 +246,6 @@ class ExerciseDatabase {
       name: "Reverse Nordic",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
-      sets: 3,
       reps: "8-10",
       notes: "Kneel on pad, secure feet. Keep body straight from knees to shoulders. Lean back slowly under control. Go as far as comfortable. Return using quads. Very challenging - use assistance if needed.",
       beginnerWeight: 0.0,
@@ -272,7 +254,6 @@ class ExerciseDatabase {
       name: "Sissy Squat",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
-      sets: 3,
       reps: "8-10",
       notes: "Hold onto stable support. Rise on toes, push knees forward. Lean back while bending knees. Keep hips extended, body in straight line. Advanced exercise - start with partial range if needed.",
       beginnerWeight: 0.0,
@@ -281,7 +262,6 @@ class ExerciseDatabase {
       name: "Dumbbell Lunges",
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads", "Glutes"],
-      sets: 3,
       reps: "10-12",
       notes: "Hold dumbbells at sides. Step forward with one leg. Lower back knee toward ground (don't slam). Keep torso upright, front knee over ankle. Push through front heel to return. Alternate legs.",
       beginnerWeight: 20.0,

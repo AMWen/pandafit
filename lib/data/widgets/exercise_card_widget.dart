@@ -43,7 +43,7 @@ class _ExerciseCardState extends State<ExerciseCard> {
 
     // Initialize controllers for each set
     _setControllers = List.generate(
-      widget.exercise.sets,
+      numSets,
       (index) {
         // If completedSets exist, use them; otherwise auto-fill with low end of suggested reps
         final reps = index < widget.exercise.completedSets.length
@@ -115,9 +115,9 @@ class _ExerciseCardState extends State<ExerciseCard> {
     // Otherwise show suggested with weight recommendation if available
     if (widget.exercise.weight != null) {
       final weightStr = formatWeight(widget.exercise.weight!);
-      return 'Suggested: ${widget.exercise.sets} sets of ${widget.exercise.reps} reps @ ${weightStr}lbs';
+      return 'Suggested: $numSets sets of ${widget.exercise.reps} reps @ ${weightStr}lbs';
     }
-    return 'Suggested: ${widget.exercise.sets} sets of ${widget.exercise.reps} reps';
+    return 'Suggested: $numSets sets of ${widget.exercise.reps} reps';
   }
 
   @override
@@ -173,6 +173,19 @@ class _ExerciseCardState extends State<ExerciseCard> {
                                 fontSize: 12,
                                 fontStyle: FontStyle.italic,
                                 fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        if (!isSkipped && widget.exercise.motivationalMessage != null)
+                          Padding(
+                            padding: EdgeInsets.only(top: 4),
+                            child: Text(
+                              widget.exercise.motivationalMessage!,
+                              style: TextStyle(
+                                color: Colors.green[700],
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -294,9 +307,9 @@ class _ExerciseCardState extends State<ExerciseCard> {
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: List.generate(widget.exercise.sets, (index) {
+                children: List.generate(numSets, (index) {
                   return SizedBox(
-                    width: 100,
+                    width: 75,
                     child: TextField(
                       controller: _setControllers[index],
                       enabled: !_isCompleted,

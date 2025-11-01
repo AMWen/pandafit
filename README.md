@@ -51,11 +51,12 @@ This app lets you generate personalized workouts for different muscle groups eac
 flutter pub get
 ```
 
-3. Once you're ready to release the app, you can generate a release APK using the following commands:
+3. Once you're ready to release the app, you can generate a release APK or appbundle using the following commands:
 
 For android:
 ```bash
 flutter build apk --release
+flutter build appbundle
 ```
 
 See instructions for [Signing the App for Flutter](https://docs.flutter.dev/deployment/android#sign-the-app) and [Uploading Native Debug Symbols](https://stackoverflow.com/questions/62568757/playstore-error-app-bundle-contains-native-code-and-youve-not-uploaded-debug)

@@ -34,24 +34,20 @@ class _ExerciseCardState extends State<ExerciseCard> {
   @override
   void initState() {
     super.initState();
-    _weightController = TextEditingController(
-      text: widget.exercise.weight?.toString() ?? '',
-    );
+    _weightController = TextEditingController(text: widget.exercise.weight?.toString() ?? '');
 
     // Parse the suggested rep range (e.g., "8-12" -> 8, or "10-15" -> 10)
     final lowEndReps = _getLowEndReps(widget.exercise.reps);
 
     // Initialize controllers for each set
-    _setControllers = List.generate(
-      numSets,
-      (index) {
-        // If completedSets exist, use them; otherwise auto-fill with low end of suggested reps
-        final reps = index < widget.exercise.completedSets.length
-            ? widget.exercise.completedSets[index].toString()
-            : lowEndReps;
-        return TextEditingController(text: reps);
-      },
-    );
+    _setControllers = List.generate(numSets, (index) {
+      // If completedSets exist, use them; otherwise auto-fill with low end of suggested reps
+      final reps =
+          index < widget.exercise.completedSets.length
+              ? widget.exercise.completedSets[index].toString()
+              : lowEndReps;
+      return TextEditingController(text: reps);
+    });
 
     _weightController.addListener(_onWeightChanged);
     for (var controller in _setControllers) {
@@ -88,31 +84,17 @@ class _ExerciseCardState extends State<ExerciseCard> {
 
   void _updateExercise() {
     final weight = double.tryParse(_weightController.text);
-    final completedSets = _setControllers
-        .map((c) => int.tryParse(c.text) ?? 0)
-        .where((reps) => reps > 0)
-        .toList();
+    final completedSets =
+        _setControllers.map((c) => int.tryParse(c.text) ?? 0).where((reps) => reps > 0).toList();
 
-    final updated = widget.exercise.copyWith(
-      weight: weight,
-      completedSets: completedSets,
-    );
+    final updated = widget.exercise.copyWith(weight: weight, completedSets: completedSets);
     widget.onUpdate(updated);
   }
 
   bool get _isCompleted => widget.isReadOnly;
 
   String _getWorkoutSummary() {
-    // If exercise has weight and completed sets, show actual results
-    if (_isCompleted) {
-      final weight = widget.exercise.weight!;
-      final weightStr = formatWeight(weight);
-      final setsStr = widget.exercise.completedSets
-          .map((reps) => '${weightStr}lb x $reps')
-          .join(', ');
-      return 'Completed: $setsStr';
-    }
-    // Otherwise show suggested with weight recommendation if available
+    // Show suggested with weight recommendation if available
     if (widget.exercise.weight != null) {
       final weightStr = formatWeight(widget.exercise.weight!);
       return 'Suggested: $numSets sets of ${widget.exercise.reps} reps @ ${weightStr}lbs';
@@ -133,73 +115,36 @@ class _ExerciseCardState extends State<ExerciseCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            // Header - Title and Icons
+            Container(
+              padding: EdgeInsets.only(right: 16, top: 8), // translate used below for left 16
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Title
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.exercise.name,
-                          style: TextStyles.mediumText.copyWith(
-                            color: isSkipped ? Colors.grey[600] : secondaryColor,
-                            decoration: isSkipped ? TextDecoration.lineThrough : null,
-                          ),
+                    child: Transform.translate(
+                      offset: Offset(16, 0),
+                      child: Text(
+                        widget.exercise.name,
+                        style: TextStyles.mediumText.copyWith(
+                          color: isSkipped ? Colors.grey[600] : secondaryColor,
+                          decoration: isSkipped ? TextDecoration.lineThrough : null,
                         ),
-                        if (widget.exercise.targetMuscles.isNotEmpty)
-                          Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Text(
-                              widget.exercise.targetMuscles.join(', '),
-                              style: TextStyle(
-                                color: isSkipped ? Colors.grey[500] : secondaryColor.withValues(alpha: 0.7),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                decoration: isSkipped ? TextDecoration.lineThrough : null,
-                              ),
-                            ),
-                          ),
-                        if (isSkipped)
-                          Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Skipped for today',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        if (!isSkipped && widget.exercise.motivationalMessage != null)
-                          Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Text(
-                              widget.exercise.motivationalMessage!,
-                              style: TextStyle(
-                                color: Colors.green[700],
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                   // Icons
                   Transform.translate(
-                    offset: Offset(14, -8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Video link icon
-                        if (!isSkipped)
+                    offset: Offset(22, -10),
+                    child: Container(
+                      color: Colors.red.withValues(alpha: 0.3),
+                      height: 32,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                        // Video link and Info icons
+                        if (!isSkipped) ...[
                           Transform.translate(
                             offset: Offset(8, 0),
                             child: IconButton(
@@ -207,29 +152,23 @@ class _ExerciseCardState extends State<ExerciseCard> {
                               onPressed: widget.onLaunchVideo,
                               tooltip: 'Watch video',
                               padding: EdgeInsets.all(8),
-                              constraints: BoxConstraints(),
                             ),
                           ),
-                        // Info icon
-                        if (!isSkipped)
-                          Transform.translate(
-                            offset: Offset(4, 0),
-                            child: IconButton(
-                              icon: Icon(Icons.info_outline, color: secondaryColor),
-                              onPressed: () {
-                                setState(() {
-                                  _expanded = !_expanded;
-                                });
-                              },
-                              tooltip: 'Form notes',
-                              padding: EdgeInsets.all(8),
-                              constraints: BoxConstraints(),
-                            ),
+                          IconButton(
+                            icon: Icon(Icons.info_outline, color: secondaryColor),
+                            onPressed: () {
+                              setState(() {
+                                _expanded = !_expanded;
+                              });
+                            },
+                            tooltip: 'Form notes',
+                            padding: EdgeInsets.all(8),
                           ),
+                        ],
                         // Skip/Restore icon
                         if (!_isCompleted)
                           Transform.translate(
-                            offset: Offset(0, 0),
+                            offset: Offset(-8, 0),
                             child: IconButton(
                               icon: Icon(
                                 isSkipped ? Icons.undo : Icons.remove_circle_outline,
@@ -238,147 +177,185 @@ class _ExerciseCardState extends State<ExerciseCard> {
                               onPressed: isSkipped ? widget.onRestore : widget.onSkip,
                               tooltip: isSkipped ? 'Restore' : 'Skip',
                               padding: EdgeInsets.all(8),
-                              constraints: BoxConstraints(),
                             ),
                           ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
 
-          // Suggested sets and reps OR actual completed sets
-          if (!isSkipped)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                _getWorkoutSummary(),
-                style: TextStyle(
-                  fontSize: 14,
-                  fontStyle: FontStyle.italic,
-                  color: secondaryColor.withValues(alpha: 0.7),
-                  fontWeight: FontWeight.w500,
+            // Subtitle - Target Muscles (full width)
+            if (widget.exercise.targetMuscles.isNotEmpty)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  widget.exercise.targetMuscles.join(', '),
+                  style: TextStyle(
+                    color: isSkipped ? Colors.grey[500] : secondaryColor.withValues(alpha: 0.7),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    decoration: isSkipped ? TextDecoration.lineThrough : null,
+                  ),
                 ),
               ),
-            ),
 
-          if (!isSkipped)
-            SizedBox(height: 8),
+            // Skipped message
+            if (isSkipped)
+              Padding(
+                padding: EdgeInsets.only(top: 4, left: 16, right: 16),
+                child: Text(
+                  'Skipped for today',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
 
-          // Weight input
-          if (!isSkipped)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Text('Weight: ', style: TextStyles.normalText.copyWith(color: secondaryColor)),
-                  SizedBox(
-                    width: 80,
-                    child: TextField(
-                      controller: _weightController,
-                      enabled: !_isCompleted,
-                      style: TextStyle(color: secondaryColor),
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+            // Motivational message
+            if (!isSkipped && widget.exercise.motivationalMessage != null)
+              Padding(
+                padding: EdgeInsets.only(top: 4, left: 16, right: 16),
+                child: Text(
+                  widget.exercise.motivationalMessage!,
+                  style: TextStyle(
+                    color: Colors.green[700],
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+
+            if (!isSkipped) SizedBox(height: 4),
+
+            // Weight input
+            if (!isSkipped)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text('Weight: ', style: TextStyles.normalText.copyWith(color: secondaryColor)),
+                    SizedBox(
+                      width: 80,
+                      child: TextField(
+                        controller: _weightController,
+                        enabled: !_isCompleted,
+                        style: TextStyle(color: secondaryColor),
+                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          hintStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.5)),
+                          suffixText: 'lbs',
+                          suffixStyle: TextStyle(color: secondaryColor),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (!isSkipped) SizedBox(height: 12),
+
+            // Sets tracking
+            if (!isSkipped)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List.generate(numSets, (index) {
+                    return SizedBox(
+                      width: 75,
+                      child: TextField(
+                        controller: _setControllers[index],
+                        enabled: !_isCompleted,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        style: TextStyle(color: secondaryColor),
+                        decoration: InputDecoration(
+                          labelText: 'Set ${index + 1}',
+                          labelStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.7)),
+                          floatingLabelStyle: TextStyle(color: secondaryColor),
+                          hintText: 'reps',
+                          hintStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.5)),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          border: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey[400]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey[400]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor, width: 2),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+
+            // Form notes (expandable)
+            if (_expanded && widget.exercise.notes.isNotEmpty && !isSkipped)
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(16),
+                margin: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
+                        SizedBox(width: 4),
+                        Text(
+                          'Form Notes',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue[700]),
+                        ),
                       ],
-                      decoration: InputDecoration(
-                        hintText: '0',
-                        hintStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.5)),
-                        suffixText: 'lbs',
-                        suffixStyle: TextStyle(color: secondaryColor),
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (!isSkipped)
-            SizedBox(height: 12),
-
-          // Sets tracking
-          if (!isSkipped)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: List.generate(numSets, (index) {
-                  return SizedBox(
-                    width: 75,
-                    child: TextField(
-                      controller: _setControllers[index],
-                      enabled: !_isCompleted,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      style: TextStyle(color: secondaryColor),
-                      decoration: InputDecoration(
-                        labelText: 'Set ${index + 1}',
-                        labelStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.7)),
-                        floatingLabelStyle: TextStyle(color: secondaryColor),
-                        hintText: 'reps',
-                        hintStyle: TextStyle(color: secondaryColor.withValues(alpha: 0.5)),
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                        border: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.grey[400]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.grey[400]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: secondaryColor, width: 2),
-                        ),
-                      ),
+                    SizedBox(height: 4),
+                    Text(
+                      widget.exercise.notes,
+                      style: TextStyle(fontSize: 14, color: Colors.grey[800]),
                     ),
-                  );
-                }),
+                  ],
+                ),
               ),
-            ),
 
-          // Form notes (expandable)
-          if (_expanded && widget.exercise.notes.isNotEmpty && !isSkipped)
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(16),
-              margin: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
-                      SizedBox(width: 4),
-                      Text(
-                        'Form Notes',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                    ],
+            // Suggested sets and reps (only show if not completed)
+            if (!isSkipped && !_isCompleted)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  _getWorkoutSummary(),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontStyle: FontStyle.italic,
+                    color: secondaryColor.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w500,
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    widget.exercise.notes,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[800]),
-                  ),
-                ],
+                ),
               ),
-            ),
 
-          SizedBox(height: 8),
-        ],
+            SizedBox(height: 8),
+          ],
+        ),
       ),
-    ),
     );
   }
 }

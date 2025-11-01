@@ -138,7 +138,6 @@ class _ExerciseCardState extends State<ExerciseCard> {
                   Transform.translate(
                     offset: Offset(22, -10),
                     child: Container(
-                      color: Colors.red.withValues(alpha: 0.3),
                       height: 32,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,

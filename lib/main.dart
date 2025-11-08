@@ -15,6 +15,7 @@ void main() async {
   Hive.registerAdapter(ExerciseCategoryAdapter());
   Hive.registerAdapter(CustomExercisePreferenceAdapter());
   Hive.registerAdapter(UserCustomExerciseAdapter());
+  Hive.registerAdapter(UserActivityAdapter());
   Hive.registerAdapter(WorkoutGenerationPreferencesAdapter());
 
   runApp(MyApp());
@@ -54,6 +55,11 @@ class MyApp extends StatelessWidget {
           backgroundColor: primaryColor,
           foregroundColor: secondaryColor,
         ),
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: secondaryColor,
+          selectionColor: secondaryColor.withValues(alpha: 0.3),
+          selectionHandleColor: secondaryColor,
+        ),
       ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
@@ -66,6 +72,11 @@ class MyApp extends StatelessWidget {
         floatingActionButtonTheme: FloatingActionButtonThemeData(
           backgroundColor: primaryColor,
           foregroundColor: secondaryColor,
+        ),
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: secondaryColor,
+          selectionColor: secondaryColor.withValues(alpha: 0.3),
+          selectionHandleColor: secondaryColor,
         ),
       ),
       home: SwipeScreens(),

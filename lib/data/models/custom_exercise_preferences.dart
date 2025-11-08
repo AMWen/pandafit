@@ -142,6 +142,21 @@ class UserCustomExercise extends HiveObject {
   }
 }
 
+/// User-added activities for quick logging
+@HiveType(typeId: 4)
+class UserActivity extends HiveObject {
+  @HiveField(0)
+  final String name;
+
+  @HiveField(1)
+  final int usualDurationMinutes; // Default/suggested duration
+
+  UserActivity({
+    required this.name,
+    required this.usualDurationMinutes,
+  });
+}
+
 /// Workout generation preferences
 @HiveType(typeId: 3)
 class WorkoutGenerationPreferences extends HiveObject {

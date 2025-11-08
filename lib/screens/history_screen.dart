@@ -4,6 +4,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
+import '../data/models/activity_model.dart';
 import '../data/services/localdb_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
 
@@ -14,20 +15,35 @@ class HistoryScreen extends StatefulWidget {
   HistoryScreenState createState() => HistoryScreenState();
 }
 
-class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin {
-  Map<DateTime, Set<MuscleGroup>> _workoutsByDate = {}; // Changed to track workout types
+class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  Map<DateTime, Set<MuscleGroup>> _workoutsByDate = {}; // Track workout types including activities
+  Map<DateTime, List<Activity>> _activitiesByDate = {}; // Track full activity details by date
   late TabController _tabController;
   Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
   Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
   bool _isLoadingProgress = false;
   final Set<String> _expandedExercises = {}; // Track which exercises show full history
   static const int _defaultHistoryLimit = 10;
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _loadedRangeStart;
+  DateTime? _loadedRangeEnd;
+  final GlobalKey<PandaStreakWidgetState> _pandaStreakKey = GlobalKey<PandaStreakWidgetState>();
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
+    // Don't load data immediately - wait for first build
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Load data on first show
     _loadWorkoutDates();
   }
 
@@ -44,19 +60,44 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     }
   }
 
-  // Helper function to filter out core workouts from exercise data
+  // Helper function to filter out core workouts and activities from exercise data
   List<Exercise> _filterRegularExercises(List<dynamic> data) {
     return data
-        .where((item) => item is! Map || item['isCore'] != true)
+        .where((item) => item is! Map || (item['isCore'] != true && item['isActivity'] != true))
         .map((item) => Exercise.fromJson(item))
         .toList();
   }
 
-  void _loadWorkoutDates() async {
+  // Public method to refresh data (called when tab becomes visible)
+  void refreshData() {
+    _loadWorkoutDates();
+    _pandaStreakKey.currentState?.refresh();
+  }
+
+  Future<void> _loadWorkoutDates([DateTime? forMonth]) async {
     final db = await LocalDB.database;
-    final logs = await db.query('workout_logs', orderBy: 'date DESC');
+
+    // Only load workouts within ±2 months of focused month to avoid memory issues
+    final referenceDate = forMonth ?? _focusedDay;
+    final startDate = DateTime(referenceDate.year, referenceDate.month - 2, 1);
+    final endDate = DateTime(referenceDate.year, referenceDate.month + 3, 0); // End of month +2
+
+    // Store the loaded range
+    _loadedRangeStart = startDate;
+    _loadedRangeEnd = endDate;
+
+    final logs = await db.query(
+      'workout_logs',
+      where: 'date >= ? AND date <= ?',
+      whereArgs: [
+        startDate.toIso8601String().substring(0, 10),
+        endDate.toIso8601String().substring(0, 10),
+      ],
+      orderBy: 'date DESC',
+    );
 
     final workoutsByDate = <DateTime, Set<MuscleGroup>>{};
+    final activitiesByDate = <DateTime, List<Activity>>{};
 
     for (var log in logs) {
       final dateStr = log['date'] as String;
@@ -67,12 +108,18 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
       // Initialize set for this date if not exists
       workoutsByDate.putIfAbsent(cleanDate, () => <MuscleGroup>{});
+      activitiesByDate.putIfAbsent(cleanDate, () => <Activity>[]);
 
       for (var item in exercisesJson) {
         if (item is Map) {
           if (item['isCore'] == true) {
             // Core workout
             workoutsByDate[cleanDate]!.add(MuscleGroup.core);
+          } else if (item['isActivity'] == true) {
+            // Activity - track the activities and mark as otherActivity type
+            final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
+            activitiesByDate[cleanDate]!.addAll(activities);
+            workoutsByDate[cleanDate]!.add(MuscleGroup.otherActivity);
           } else {
             // Regular exercise
             final exercise = Exercise.fromJson(item as Map<String, dynamic>);
@@ -87,6 +134,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
     setState(() {
       _workoutsByDate = workoutsByDate;
+      _activitiesByDate = activitiesByDate;
     });
   }
 
@@ -137,18 +185,26 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     return _workoutsByDate[key] ?? {};
   }
 
-  // Event loader for calendar - returns non-empty list if workouts exist
+  // Get activities for a specific day
+  List<Activity> _getActivitiesForDay(DateTime day) {
+    final key = DateTime(day.year, day.month, day.day);
+    return _activitiesByDate[key] ?? [];
+  }
+
+  // Event loader for calendar - returns non-empty list if workouts or activities exist
   List<String> _getEventsForDay(DateTime day) {
     final workouts = _getWorkoutsForDay(day);
-    return workouts.isEmpty ? [] : ['Workout'];
+    final activities = _getActivitiesForDay(day);
+    return (workouts.isEmpty && activities.isEmpty) ? [] : ['Workout'];
   }
 
   Future<void> _showRoutineForDate(DateTime date) async {
     final workoutsByGroup = await LocalDB.getWorkoutsByMuscleGroup(date);
     final coreWorkout = await LocalDB.getCoreRoutineForDate(date);
+    final activities = await LocalDB.getActivitiesForDate(date);
     final dateString = date.toIso8601String().substring(0, 10);
 
-    if (workoutsByGroup.isEmpty && coreWorkout == null && mounted) {
+    if (workoutsByGroup.isEmpty && coreWorkout == null && activities == null && mounted) {
       showErrorSnackbar(context, 'No workout found for this date');
       return;
     }
@@ -160,6 +216,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           date: dateString,
           workoutsByGroup: workoutsByGroup,
           coreWorkout: coreWorkout,
+          activities: activities,
         ),
       );
     }
@@ -176,6 +233,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
         title: Text('Workout History'),
@@ -232,18 +290,40 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   }
 
   Widget _buildCalendarView() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          SizedBox(height: 16),
-          TableCalendar(
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadWorkoutDates();
+      },
+      child: SingleChildScrollView(
+        physics: AlwaysScrollableScrollPhysics(), // Allows pull-to-refresh even when content doesn't scroll
+        child: Column(
+          children: [
+            SizedBox(height: 16),
+            TableCalendar(
           firstDay: DateTime.utc(2025, 1, 1),
           lastDay: DateTime.utc(2030, 12, 31),
-          focusedDay: DateTime.now(),
+          focusedDay: _focusedDay,
           eventLoader: _getEventsForDay,
+          onPageChanged: (focusedDay) {
+            // Check if the new month is outside our loaded range
+            final needsReload = _loadedRangeStart == null ||
+                _loadedRangeEnd == null ||
+                focusedDay.isBefore(_loadedRangeStart!) ||
+                focusedDay.isAfter(_loadedRangeEnd!);
+
+            setState(() {
+              _focusedDay = focusedDay;
+            });
+
+            // Reload data if we've navigated outside the loaded range
+            if (needsReload) {
+              _loadWorkoutDates(focusedDay);
+            }
+          },
           calendarBuilders: CalendarBuilders(
             markerBuilder: (context, date, events) {
               final workouts = _getWorkoutsForDay(date);
+
               if (workouts.isEmpty) return null;
 
               // Create a dot for each workout type
@@ -278,8 +358,9 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           SizedBox(height: 16),
           // Legend for calendar colors
           _buildColorLegend(),
-          PandaStreakWidget(),
-        ],
+          PandaStreakWidget(key: _pandaStreakKey),
+          ],
+        ),
       ),
     );
   }
@@ -292,9 +373,10 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         runSpacing: 8,
         alignment: WrapAlignment.center,
         children: [
-          _buildLegendItem('Upper Body', WorkoutColors.upperBody),
-          _buildLegendItem('Lower Body', WorkoutColors.lowerBody),
-          _buildLegendItem('Core', WorkoutColors.core),
+          _buildLegendItem(muscleGroupToString(MuscleGroup.upperBody), WorkoutColors.upperBody),
+          _buildLegendItem(muscleGroupToString(MuscleGroup.lowerBody), WorkoutColors.lowerBody),
+          _buildLegendItem(muscleGroupToString(MuscleGroup.core), WorkoutColors.core),
+          _buildLegendItem(muscleGroupToString(MuscleGroup.otherActivity), WorkoutColors.otherActivity),
         ],
       ),
     );
@@ -454,11 +536,13 @@ class _WorkoutHistoryDialog extends StatefulWidget {
   final String date;
   final Map<MuscleGroup, List<Exercise>> workoutsByGroup;
   final CoreWorkoutRoutine? coreWorkout;
+  final ActivityRoutine? activities;
 
   const _WorkoutHistoryDialog({
     required this.date,
     required this.workoutsByGroup,
     this.coreWorkout,
+    this.activities,
   });
 
   @override
@@ -472,7 +556,9 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
   @override
   void initState() {
     super.initState();
-    _totalTabs = widget.workoutsByGroup.length + (widget.coreWorkout != null ? 1 : 0);
+    _totalTabs = widget.workoutsByGroup.length +
+                 (widget.coreWorkout != null ? 1 : 0) +
+                 (widget.activities != null ? 1 : 0);
     _tabController = TabController(length: _totalTabs, vsync: this);
   }
 
@@ -552,6 +638,44 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     );
   }
 
+  Widget _buildActivitiesList(ActivityRoutine activities) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: activities.activities.map((activity) {
+          return Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  activity.name,
+                  style: TextStyles.mediumText,
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '${activity.durationMinutes} minutes',
+                  style: TextStyles.normalText.copyWith(color: Colors.grey),
+                ),
+                if (activity.notes != null && activity.notes!.isNotEmpty) ...[
+                  SizedBox(height: 4),
+                  Text(
+                    activity.notes!,
+                    style: TextStyles.normalText.copyWith(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final muscleGroups = widget.workoutsByGroup.keys.toList();
@@ -560,13 +684,15 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     // Build tab labels
     final tabLabels = [
       ...muscleGroups.map((group) => muscleGroupToString(group)),
-      if (widget.coreWorkout != null) 'Core',
+      if (widget.coreWorkout != null) muscleGroupToString(MuscleGroup.core),
+      if (widget.activities != null) muscleGroupToString(MuscleGroup.otherActivity),
     ];
 
     // Build tab content
     final tabContent = [
       ...muscleGroups.map((group) => _buildExerciseList(widget.workoutsByGroup[group]!)),
       if (widget.coreWorkout != null) _buildCoreWorkoutList(widget.coreWorkout!),
+      if (widget.activities != null) _buildActivitiesList(widget.activities!),
     ];
 
     return AlertDialog(

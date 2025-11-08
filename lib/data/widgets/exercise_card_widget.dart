@@ -137,7 +137,7 @@ class _ExerciseCardState extends State<ExerciseCard> {
                   // Icons
                   Transform.translate(
                     offset: Offset(22, -10),
-                    child: Container(
+                    child: SizedBox(
                       height: 32,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,

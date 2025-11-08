@@ -4,13 +4,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
-import '../data/models/custom_exercise_preferences.dart';
+import '../data/models/activity_model.dart';
 import '../data/services/localdb_service.dart';
 import '../data/services/workout_generator.dart';
 import '../data/services/core_workout_generator.dart';
-import '../data/services/workout_preferences_service.dart';
+import '../data/services/activity_preferences_service.dart';
 import '../data/widgets/exercise_card_widget.dart';
 import '../data/widgets/core_workout_card_widget.dart';
+import '../data/widgets/activity_card_widget.dart';
+import '../data/widgets/add_exercise_card_widget.dart';
 import '../utils/ui_helpers.dart';
 import 'history_screen.dart';
 import 'workout_settings_screen.dart';
@@ -30,15 +32,23 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isLoading = false;
   bool isCoreCompleted = false;
   bool isYesterdayCoreCompleted = false;
+  bool isActivityCompleted = false;
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
+  ActivityRoutine? completedActivitiesToday;
+  List<Activity> currentActivities = [];
+  List<String> previousActivityNames = [];
   DateTime today = DateTime.now();
   DateTime yesterday = DateTime.now().subtract(Duration(days: 1));
   Map<String, Exercise> exerciseUpdates = {}; // Track exercise updates by name
   Map<MuscleGroup, List<Exercise>> completedWorkoutsToday = {}; // Track completed workouts with exercises
+  Map<MuscleGroup, WorkoutRoutine> cachedWorkouts = {}; // Cache in-progress workouts by muscle group
+  bool _showAddExerciseCard = false; // Track if add exercise card is visible
+  final ScrollController _scrollController = ScrollController();
 
   late PageController _pageController;
   int _currentIndex = 0;
+  final GlobalKey<HistoryScreenState> _historyKey = GlobalKey<HistoryScreenState>();
 
   @override
   void initState() {
@@ -50,21 +60,41 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _onPageChanged(int index) {
     setState(() {
+      // Save current workout to cache and database before switching
+      if (currentWorkout != null && selectedTarget != null) {
+        cachedWorkouts[selectedTarget!] = currentWorkout!;
+        LocalDB.saveIncompleteWorkout(currentWorkout!);
+      }
+
       _currentIndex = index;
       if (index == 0 || index == 1) { // Upper Body (0) or Lower Body (1)
         selectedTarget = index == 0 ? MuscleGroup.upperBody : MuscleGroup.lowerBody;
-        if (currentWorkout == null || currentWorkout!.targetArea != selectedTarget) {
+
+        // Check if workout is already completed for this target
+        if (completedWorkoutsToday.containsKey(selectedTarget!)) {
+          currentWorkout = null;
+        }
+        // Check if we have a cached workout for this target
+        else if (cachedWorkouts.containsKey(selectedTarget!)) {
+          currentWorkout = cachedWorkouts[selectedTarget!];
+        }
+        // Otherwise generate a new workout
+        else {
           _generateWorkout(selectedTarget!);
         }
       } else if (index == 2) { // Core tab
         if (currentCoreWorkout == null && !isCoreCompleted) {
           _generateCoreWorkout();
         }
+      } else if (index == 4) { // History tab
+        // Refresh history when switching to it
+        _historyKey.currentState?.refreshData();
       }
     });
   }
@@ -74,9 +104,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadTodaysWorkout() async {
+    // Clear old incomplete workouts from previous days
+    await LocalDB.clearOldIncompleteWorkouts();
+
     final routine = await LocalDB.getRoutineForDate(today);
     final coreRoutine = await LocalDB.getCoreRoutineForDate(today);
     final yesterdayCoreRoutine = await LocalDB.getCoreRoutineForDate(yesterday);
+    final activityRoutine = await LocalDB.getActivitiesForDate(today);
+    final activityNames = await ActivityPreferencesService.getActivityNames();
+    final incompleteWorkouts = await LocalDB.getIncompleteWorkouts(today);
+
+    // Load incomplete workouts into cache
+    cachedWorkouts = incompleteWorkouts;
 
     // Load completed workouts and set default selection to Upper Body
     if (routine != null) {
@@ -108,6 +147,19 @@ class _HomeScreenState extends State<HomeScreen> {
       _generateYesterdayCoreWorkout();
     }
 
+    // Load completed activities for today
+    if (activityRoutine != null) {
+      setState(() {
+        isActivityCompleted = true;
+        completedActivitiesToday = activityRoutine;
+      });
+    }
+
+    // Load previous activity names for autocomplete
+    setState(() {
+      previousActivityNames = activityNames;
+    });
+
     // Default to Upper Body selection
     setState(() {
       selectedTarget = MuscleGroup.upperBody;
@@ -122,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _generateWorkout(MuscleGroup target) async {
     setState(() {
       selectedTarget = target;
+      _showAddExerciseCard = false; // Hide add card when switching workouts
     });
 
     // Check if this target has already been completed today
@@ -156,6 +209,9 @@ class _HomeScreenState extends State<HomeScreen> {
         currentWorkout = workout;
         isLoading = false;
       });
+
+      // Save incomplete workout to database
+      await LocalDB.saveIncompleteWorkout(workout);
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -204,11 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await LocalDB.insertWorkout(finalWorkout);
+      // Delete from incomplete workouts
+      await LocalDB.deleteIncompleteWorkout(today, currentWorkout!.targetArea);
       _showSnackbar('Workout saved! Great job!');
 
       // Mark this target as completed today
       setState(() {
         completedWorkoutsToday[currentWorkout!.targetArea] = updatedExercises;
+        cachedWorkouts.remove(currentWorkout!.targetArea); // Clear from cache
         currentWorkout = null;
         exerciseUpdates.clear();
       });
@@ -239,8 +298,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
         setState(() {
           currentWorkout = restoredWorkout;
+          cachedWorkouts[targetArea] = restoredWorkout; // Add back to cache
           completedWorkoutsToday.remove(targetArea);
         });
+
+        // Save back to incomplete workouts
+        await LocalDB.saveIncompleteWorkout(restoredWorkout);
 
         _showSnackbar('Workout completion undone');
       }
@@ -345,6 +408,74 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Activity methods
+  void _addActivity(Activity activity) async {
+    setState(() {
+      currentActivities.add(activity);
+      // Add to previous names if not already there
+      if (!previousActivityNames.contains(activity.name)) {
+        previousActivityNames.add(activity.name);
+        previousActivityNames.sort();
+      }
+    });
+
+    // Auto-save to Hive for future autocomplete and duration pre-fill
+    try {
+      await ActivityPreferencesService.saveOrUpdateActivity(
+        activity.name,
+        activity.durationMinutes,
+      );
+      debugPrint('Activity saved to Hive: ${activity.name}');
+    } catch (e) {
+      // Activity still logged to daily workout, just not saved for autocomplete
+      debugPrint('Error saving activity to Hive: $e');
+    }
+  }
+
+  void _removeActivity(int index) {
+    setState(() {
+      currentActivities.removeAt(index);
+    });
+  }
+
+  Future<void> _completeActivities() async {
+    if (currentActivities.isEmpty) {
+      _showSnackbar('Please add at least one activity');
+      return;
+    }
+
+    final activityRoutine = ActivityRoutine(activities: currentActivities);
+
+    try {
+      await LocalDB.insertActivities(activityRoutine);
+      _showSnackbar('Activities saved! Great job!');
+
+      setState(() {
+        isActivityCompleted = true;
+        completedActivitiesToday = activityRoutine;
+        currentActivities = [];
+      });
+    } catch (e) {
+      _showSnackbar('Error saving activities: $e');
+    }
+  }
+
+  Future<void> _undoActivityCompletion() async {
+    try {
+      await LocalDB.removeActivities(today);
+
+      setState(() {
+        currentActivities = completedActivitiesToday?.activities ?? [];
+        isActivityCompleted = false;
+        completedActivitiesToday = null;
+      });
+
+      _showSnackbar('Activity completion undone');
+    } catch (e) {
+      _showSnackbar('Error undoing activities: $e');
+    }
+  }
+
   Future<void> _launchUrl(String url) async {
     if (url.isEmpty) {
       _showSnackbar('No video link available');
@@ -416,7 +547,8 @@ class _HomeScreenState extends State<HomeScreen> {
         // Exercise list
         Expanded(
           child: ListView.builder(
-            itemCount: currentWorkout!.exercises.length + 1, // +1 for add button at end
+            controller: _scrollController,
+            itemCount: currentWorkout!.exercises.length + 1, // +1 for add button/card at end
             itemBuilder: (context, index) {
               // Show exercises first
               if (index < currentWorkout!.exercises.length) {
@@ -433,43 +565,102 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
 
-              // Show circular add button at the end
-              return Center(
-                child: FloatingActionButton.small(
-                  onPressed: _showAddExerciseDialog,
-                  backgroundColor: primaryColor,
-                  shape: CircleBorder(),
-                  child: Icon(Icons.add, color: Colors.white, size: 20),
-                ),
-              );
+              // Show either + button or add exercise card at the end
+              if (_showAddExerciseCard) {
+                return AddExerciseCard(
+                  muscleGroup: selectedTarget!,
+                  currentExercises: currentWorkout!.exercises,
+                  onAdd: (exercise) {
+                    setState(() {
+                      if (currentWorkout != null) {
+                        // Check if exercise already exists
+                        final isDuplicate = currentWorkout!.exercises.any((e) => e.name == exercise.name);
+
+                        if (isDuplicate) {
+                          _showSnackbar('Exercise already in workout');
+                          return;
+                        }
+
+                        // Add exercise to current workout
+                        currentWorkout = WorkoutRoutine(
+                          targetArea: currentWorkout!.targetArea,
+                          exercises: [...currentWorkout!.exercises, exercise],
+                        );
+                        // Initialize tracking for new exercise
+                        exerciseUpdates[exercise.name] = exercise;
+
+                        // Save incomplete workout to database
+                        LocalDB.saveIncompleteWorkout(currentWorkout!);
+
+                        _showSnackbar('Exercise added to workout');
+
+                        // Hide the add card after adding
+                        _showAddExerciseCard = false;
+                      }
+                    });
+                  },
+                  onCancel: () {
+                    setState(() {
+                      _showAddExerciseCard = false;
+                    });
+                  },
+                );
+              } else {
+                return Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: FloatingActionButton.small(
+                      onPressed: () {
+                        setState(() {
+                          _showAddExerciseCard = true;
+                        });
+                        // Scroll to bottom to show the add card
+                        Future.delayed(Duration(milliseconds: 100), () {
+                          if (_scrollController.hasClients) {
+                            _scrollController.animateTo(
+                              _scrollController.position.maxScrollExtent,
+                              duration: Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            );
+                          }
+                        });
+                      },
+                      backgroundColor: primaryColor,
+                      shape: CircleBorder(),
+                      child: Icon(Icons.add, color: Colors.white, size: 20),
+                    ),
+                  ),
+                );
+              }
             },
           ),
         ),
 
-        // Complete Workout button only
-        Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(
-            child: ElevatedButton(
-              onPressed: _completeWorkout,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-              ),
-              child: Text(
-                'Complete Workout',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        // Complete Workout button (hide when add exercise card is visible)
+        if (!_showAddExerciseCard)
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: ElevatedButton(
+                onPressed: _completeWorkout,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  'Complete Workout',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
 
   Widget _buildCoreWorkoutPage() {
     return _WorkoutPageWidget(
-      title: 'Core',
+      title: muscleGroupToString(MuscleGroup.core),
       isLoading: isLoading,
       workoutView: _buildCoreWorkoutView(),
     );
@@ -564,6 +755,116 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildActivityPage() {
+    return _WorkoutPageWidget(
+      title: 'Other Activities',
+      isLoading: false,
+      workoutView: _buildActivityView(),
+      onOpenSettings: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => WorkoutSettingsScreen(showActivitiesOnly: true)),
+        );
+        // Reload activity names after settings change
+        final activityNames = await ActivityPreferencesService.getActivityNames();
+        setState(() {
+          previousActivityNames = activityNames;
+        });
+      },
+    );
+  }
+
+  Widget _buildActivityView() {
+    // Show completed view
+    if (isActivityCompleted && completedActivitiesToday != null) {
+      return Column(
+        children: [
+          // Completion message
+          buildCompletionMessage(
+            title: 'Activities completed!',
+            onUndo: _undoActivityCompletion,
+          ),
+
+          // Completed activities list
+          Expanded(
+            child: ListView.builder(
+              itemCount: completedActivitiesToday!.activities.length,
+              itemBuilder: (context, index) {
+                final activity = completedActivitiesToday!.activities[index];
+                return ActivityCard(
+                  activity: activity,
+                  isReadOnly: true,
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Show input form
+    return Column(
+      children: [
+        // Scrollable content
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                // Input widget
+                ActivityInputWidget(
+                  onAdd: _addActivity,
+                  previousActivityNames: previousActivityNames,
+                  currentActivities: currentActivities,
+                ),
+
+                // Current activities list
+                if (currentActivities.isNotEmpty) ...[
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text(
+                      'Today\'s Activities:',
+                      style: TextStyles.titleText,
+                    ),
+                  ),
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: NeverScrollableScrollPhysics(),
+                    itemCount: currentActivities.length,
+                    itemBuilder: (context, index) {
+                      return ActivityCard(
+                        activity: currentActivities[index],
+                        onDelete: () => _removeActivity(index),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+
+        // Complete button - always at bottom
+        if (currentActivities.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: ElevatedButton(
+                onPressed: _completeActivities,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  'Complete Activities',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -572,13 +873,15 @@ class _HomeScreenState extends State<HomeScreen> {
         onPageChanged: _onPageChanged,
         children: [
           // Upper Body Tab
-          _buildWorkoutPage('Upper Body'),
+          _buildWorkoutPage(muscleGroupToString(MuscleGroup.upperBody)),
           // Lower Body Tab
-          _buildWorkoutPage('Lower Body'),
+          _buildWorkoutPage(muscleGroupToString(MuscleGroup.lowerBody)),
           // Core Tab
           _buildCoreWorkoutPage(),
+          // Other Activities Tab
+          _buildActivityPage(),
           // History Tab
-          HistoryScreen(),
+          HistoryScreen(key: _historyKey),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -588,18 +891,30 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: _onItemTapped,
         selectedItemColor: secondaryColor,
         unselectedItemColor: secondaryColor.withValues(alpha: 0.6),
-        items: const [
+        selectedLabelStyle: TextStyle(
+          height: 1.2,
+          fontSize: 12,
+        ),
+        unselectedLabelStyle: TextStyle(
+          height: 1.2,
+          fontSize: 12,
+        ),
+        items: [
           BottomNavigationBarItem(
             icon: Icon(Icons.fitness_center),
-            label: 'Upper Body',
+            label: 'Upper',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.directions_run),
-            label: 'Lower Body',
+            label: 'Lower',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.accessibility_new),
             label: 'Core',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.directions_bike),
+            label: 'Activities',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.history),
@@ -622,187 +937,15 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         // Regenerate workout after settings change
         if (selectedTarget != null) {
+          // Clear cached workout to force regeneration
+          cachedWorkouts.remove(selectedTarget!);
+          await LocalDB.deleteIncompleteWorkout(today, selectedTarget!);
           _generateWorkout(selectedTarget!);
         }
       },
     );
   }
 
-  void _showAddExerciseDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => _AddExerciseToWorkoutDialog(
-        muscleGroup: selectedTarget!,
-        currentExercises: currentWorkout?.exercises ?? [],
-        onAdd: (exercise) {
-          setState(() {
-            if (currentWorkout != null) {
-              // Check if exercise already exists
-              final isDuplicate = currentWorkout!.exercises.any((e) => e.name == exercise.name);
-
-              if (isDuplicate) {
-                _showSnackbar('Exercise already in workout');
-                return;
-              }
-
-              // Add exercise to current workout
-              currentWorkout = WorkoutRoutine(
-                targetArea: currentWorkout!.targetArea,
-                exercises: [...currentWorkout!.exercises, exercise],
-              );
-              // Initialize tracking for new exercise
-              exerciseUpdates[exercise.name] = exercise;
-              _showSnackbar('Exercise added to workout');
-            }
-          });
-        },
-      ),
-    );
-  }
-}
-
-// Dialog for adding exercises to current workout
-class _AddExerciseToWorkoutDialog extends StatefulWidget {
-  final MuscleGroup muscleGroup;
-  final List<Exercise> currentExercises;
-  final Function(Exercise) onAdd;
-
-  const _AddExerciseToWorkoutDialog({
-    required this.muscleGroup,
-    required this.currentExercises,
-    required this.onAdd,
-  });
-
-  @override
-  State<_AddExerciseToWorkoutDialog> createState() => _AddExerciseToWorkoutDialogState();
-}
-
-class _AddExerciseToWorkoutDialogState extends State<_AddExerciseToWorkoutDialog> {
-  List<Exercise> _availableExercises = [];
-  List<UserCustomExercise> _customExercises = [];
-  Exercise? _selectedExercise;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadExercises();
-  }
-
-  Future<void> _loadExercises() async {
-    // Get all exercises for the selected muscle group
-    List<Exercise> allExercises = [];
-
-    if (widget.muscleGroup == MuscleGroup.upperBody) {
-      allExercises.addAll(ExerciseDatabase.chestExercises);
-      allExercises.addAll(ExerciseDatabase.backExercises);
-      allExercises.addAll(ExerciseDatabase.shoulderExercises);
-      allExercises.addAll(ExerciseDatabase.armExercises);
-    } else if (widget.muscleGroup == MuscleGroup.lowerBody) {
-      allExercises.addAll(ExerciseDatabase.legExercises);
-    }
-
-    // Get user custom exercises
-    final customExercises = await WorkoutPreferencesService.getUserCustomExercises();
-    final filteredCustom = customExercises
-        .where((ex) => ex.muscleGroup == widget.muscleGroup)
-        .toList();
-
-    // Filter out exercises already in the current workout
-    final currentExerciseNames = widget.currentExercises.map((e) => e.name).toSet();
-    final availableExercises = allExercises
-        .where((ex) => !currentExerciseNames.contains(ex.name))
-        .toList();
-    final availableCustom = filteredCustom
-        .where((ex) => !currentExerciseNames.contains(ex.name))
-        .toList();
-
-    setState(() {
-      _availableExercises = availableExercises;
-      _customExercises = availableCustom;
-      _isLoading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return AlertDialog(
-        content: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return AlertDialog(
-      title: Text('Add Exercise to Workout'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Select an exercise to add to your current workout:',
-              style: TextStyle(fontSize: 14),
-            ),
-            SizedBox(height: 16),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  // Built-in exercises
-                  if (_availableExercises.isNotEmpty) ...[
-                    Text('Standard Exercises', style: TextStyles.mediumText),
-                    ..._availableExercises.map((exercise) => RadioListTile<Exercise>(
-                      title: Text(exercise.name),
-                      subtitle: Text(exercise.targetMuscles.join(', ')),
-                      value: exercise,
-                      groupValue: _selectedExercise,
-                      onChanged: (value) => setState(() => _selectedExercise = value),
-                    )),
-                  ],
-                  // Custom exercises
-                  if (_customExercises.isNotEmpty) ...[
-                    SizedBox(height: 8),
-                    Text('Your Custom Exercises', style: TextStyles.mediumText),
-                    ..._customExercises.map((customEx) {
-                      final exercise = Exercise(
-                        name: customEx.name,
-                        muscleGroup: customEx.muscleGroup, // Use the getter
-                        targetMuscles: customEx.targetMuscles,
-                        reps: customEx.reps,
-                        videoLink: customEx.videoLink,
-                        notes: customEx.notes,
-                        weight: customEx.beginnerWeight,
-                      );
-                      return RadioListTile<Exercise>(
-                        title: Text(exercise.name),
-                        subtitle: Text('${exercise.reps} reps - Custom'),
-                        value: exercise,
-                        groupValue: _selectedExercise,
-                        onChanged: (value) => setState(() => _selectedExercise = value),
-                      );
-                    }),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _selectedExercise == null ? null : () {
-            widget.onAdd(_selectedExercise!);
-            Navigator.pop(context);
-          },
-          child: Text('Add Exercise'),
-        ),
-      ],
-    );
-  }
 }
 
 // Separate widget with AutomaticKeepAliveClientMixin to preserve state
@@ -823,14 +966,9 @@ class _WorkoutPageWidget extends StatefulWidget {
   State<_WorkoutPageWidget> createState() => _WorkoutPageWidgetState();
 }
 
-class _WorkoutPageWidgetState extends State<_WorkoutPageWidget> with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
+class _WorkoutPageWidgetState extends State<_WorkoutPageWidget> {
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),

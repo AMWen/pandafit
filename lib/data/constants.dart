@@ -13,6 +13,7 @@ class WorkoutColors {
   static const Color upperBody = Color(0xFF2196F3); // Blue
   static const Color lowerBody = Color(0xFFFF9800); // Orange
   static const Color core = Color(0xFF4CAF50); // Green
+  static const Color otherActivity = Color(0xFFFF69B4); // Hot Pink
   static const Color mixed = Color(0xFF9C27B0); // Purple (when multiple types completed)
 
   // Helper to get color for a specific muscle group
@@ -24,6 +25,8 @@ class WorkoutColors {
         return lowerBody;
       case MuscleGroup.core:
         return core;
+      case MuscleGroup.otherActivity:
+        return otherActivity;
     }
   }
 }
@@ -123,7 +126,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Lats", "Pecs"],
       reps: "10-12",
-      notes: "Lie perpendicular on bench (shoulders only). Lower dumbbell behind head until you feel lat stretch. Keep slight bend in elbows. Pull back using lats, not arms.",
+      notes: "Lie flat on bench, feet on floor, shoulders pressed down. Hold dumbbell overhead with both hands. Lower weight back behind your head in an arc until you feel lat stretch. Keep slight bend in elbows. Pull back using lats, not arms.",
       beginnerWeight: 15.0,
     ),
   ];
@@ -171,7 +174,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Biceps Long Head", "Brachialis"],
       reps: "10-12",
-      notes: "Set bench to 45 degrees. Let arms hang straight down with full stretch. Curl up while keeping elbows stationary. Squeeze at top, control the descent. Don't swing.",
+      notes: "Set bench to 45-60 degrees (higher angle = easier). Let arms hang straight down with full stretch. Curl up while keeping elbows stationary. Squeeze at top, control the descent. Don't swing.",
       beginnerWeight: 10.0,
     ),
     createExercise(

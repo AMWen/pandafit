@@ -5,6 +5,7 @@ enum MuscleGroup {
   upperBody,
   lowerBody,
   core,
+  otherActivity,
 }
 
 String muscleGroupToString(MuscleGroup group) {
@@ -15,6 +16,8 @@ String muscleGroupToString(MuscleGroup group) {
       return 'Lower Body';
     case MuscleGroup.core:
       return 'Core';
+    case MuscleGroup.otherActivity:
+      return 'Other Activities';
   }
 }
 
@@ -26,6 +29,8 @@ MuscleGroup stringToMuscleGroup(String str) {
       return MuscleGroup.lowerBody;
     case 'Core':
       return MuscleGroup.core;
+    case 'Other Activities':
+      return MuscleGroup.otherActivity;
     default:
       return MuscleGroup.upperBody;
   }

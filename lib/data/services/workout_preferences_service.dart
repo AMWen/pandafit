@@ -60,6 +60,7 @@ class WorkoutPreferencesService {
   // Get all exercises marked as "never include"
   static Future<List<String>> getNeverIncludeExercises() async {
     final customPrefs = await getCustomExercisePreferences();
+    final customExercises = await getUserCustomExercises();
 
     final neverIncludeNames = <String>[];
 
@@ -68,6 +69,13 @@ class WorkoutPreferencesService {
       customPrefs
           .where((p) => p.neverInclude)
           .map((p) => p.exerciseName)
+    );
+
+    // From user custom exercises
+    neverIncludeNames.addAll(
+      customExercises
+          .where((ex) => ex.neverInclude)
+          .map((ex) => ex.name)
     );
 
     return neverIncludeNames;

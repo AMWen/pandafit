@@ -6,12 +6,19 @@ This app lets you generate personalized workouts for different muscle groups eac
 
 ## Features
 
-- **Three workout types**: Upper Body, Lower Body, and Core workouts
+- **Four workout types**: Upper Body, Lower Body, Core, and Other Activities
   - **Upper & Lower Body**: Separate exercise cards with weight tracking, progressive overload suggestions, and automatic rep range recommendations
   - **Core**: Single workout card format with all exercises displayed together, includes yesterday's catchup option
+  - **Other Activities**: Log non-gym activities like kayaking, cycling, taekwondo, etc. with duration and notes
 - **Smart workout generator**: Generates randomized daily workouts with volume-based scaling and deterministic seeding (same workout for the same day so you can do the same exercises together with a friend!)
+- **Streak tracking**: Panda mascot evolves as you build workout streaks
+- **Customizable workouts**: Full control over workout generation
+  - **Exercise preferences**: Mark exercises as "always include", "never include", or random selection
+  - **Custom exercises**: Create your own exercises with custom weights, rep ranges, form notes, and video links
+  - **Workout generation settings**: Control how many exercises are selected from each muscle group
+  - **Add exercises during workout**: Add standard or custom exercises to your active workout on the fly
 - **Exercise timer**: Built-in countdown timer for timed exercises (planks, holds) with progress indicator and audio alarm
-- **Activity log**: Tracks completed workouts by muscle group in a calendar view with separate tabs for each workout type
+- **Activity tracking**: Tracks completed workouts by muscle group in a calendar view with color-coded dots
 - **Progress tracking**: View exercise history with weight and rep progression in the Upper Body and Lower Body tabs
 - **Progress import and export**: Import and export workout history as CSV files
 - **Yesterday's catchup**: Core workouts allow completing yesterday's missed workout
@@ -78,6 +85,9 @@ flutter build ios --release
 - Track weight and completed sets per exercise
 - Smart weight suggestions based on workout history with progressive overload
 - Auto-populated rep counts based on rep range
+- Skip exercises or add new ones during your workout
+- Customize exercise preferences (always/never include, custom weights/reps)
+- Create and save custom exercises
 - Completion tracked per muscle group
 - History shows weight progression over time
 
@@ -89,50 +99,89 @@ flutter build ios --release
 - Timed exercises with built-in countdown timer (⏰ icon)
 - Completion tracked separately in calendar view
 
+### Other Activities
+- Log non-traditional workouts and activities
+- Track activity name, duration (minutes), and optional notes
+- Auto-complete from previously logged activities
+- Pre-fills usual duration for saved activities
+- Manage saved activities in settings
+- Completion tracked in calendar view with dedicated color
+
 ## Project Structure
 
 ```bash
 lib/
 ├── data/
 │   ├── models/
-│   │   ├── exercise_model.dart          # Upper/Lower body exercise & routine models
-│   │   └── core_exercise_model.dart     # Core exercise & routine models
+│   │   ├── exercise_model.dart                # Upper/Lower body exercise & routine models
+│   │   ├── core_exercise_model.dart           # Core exercise & routine models
+│   │   ├── activity_model.dart                # Activity & routine models
+│   │   └── custom_exercise_preferences.dart   # Custom exercise preferences models
 │   ├── services/
-│   │   ├── localdb_service.dart         # SQLite database with workout & core workout methods
-│   │   ├── workout_generator.dart       # Upper/Lower body workout generator
-│   │   └── core_workout_generator.dart  # Core workout generator with volume scaling
+│   │   ├── localdb_service.dart               # SQLite database with all workout methods
+│   │   ├── workout_generator.dart             # Upper/Lower body workout generator
+│   │   ├── core_workout_generator.dart        # Core workout generator with volume scaling
+│   │   ├── workout_preferences_service.dart   # Hive storage for workout customization
+│   │   └── activity_preferences_service.dart  # Hive storage for activity management
 │   ├── widgets/
-│   │   ├── exercise_card_widget.dart         # Individual exercise card for upper/lower
-│   │   ├── core_workout_card_widget.dart     # Single card for all core exercises
-│   │   ├── countdown_widget.dart             # Timer widget for timed exercises
-│   │   └── panda_streak_widget.dart          # Workout streak display
-│   └── constants.dart                        # Exercise database & core exercise pool
+│   │   ├── exercise_card_widget.dart          # Individual exercise card for upper/lower
+│   │   ├── add_exercise_card_widget.dart      # Card for adding exercises during workout
+│   │   ├── core_workout_card_widget.dart      # Single card for all core exercises
+│   │   ├── activity_card_widget.dart          # Activity display and input widgets
+│   │   ├── countdown_widget.dart              # Timer widget for timed exercises
+│   │   └── panda_streak_widget.dart           # Workout streak display
+│   └── constants.dart                         # Exercise database & core exercise pool
 ├── screens/
-│   ├── home_screen.dart                 # Main screen with 4 tabs (Upper/Lower/Core/History)
-│   └── history_screen.dart              # Calendar view with progress tracking
+│   ├── home_screen.dart                       # Main screen with 5 tabs (Upper/Lower/Core/Activities/History)
+│   ├── history_screen.dart                    # Calendar view with progress tracking
+│   ├── workout_settings_screen.dart           # Workout customization and preferences
+│   └── create_custom_exercise_screen.dart     # Create custom exercises
 ├── utils/
-│   └── file_utils.dart                  # CSV import/export utilities
+│   ├── file_utils.dart                        # CSV import/export utilities
+│   └── ui_helpers.dart                        # UI helper functions
 └── main.dart
 assets/
-└── sounds/
-    └── alarm.mp3
+├── sounds/
+│   └── alarm.mp3
+└── images/
+    ├── baby_panda.png
+    ├── sad_baby_panda.png
+    ├── strong_panda.png
+    └── super_strong_panda.png
 pubspec.yaml
 ```
 
 ## Database Structure
 
+### SQLite (Workout Logs)
 The app uses SQLite to store workout data with the following schema:
 
 ```sql
 workout_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT UNIQUE,
-  target_area TEXT,  -- e.g., "Upper Body + Core"
-  exercises TEXT     -- JSON array containing both regular exercises and core workouts
+  target_area TEXT,  -- e.g., "Upper Body + Core + Other Activities"
+  exercises TEXT     -- JSON array containing exercises, core workouts, and activities
+)
+
+incomplete_workouts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT,
+  target_area TEXT,
+  exercises TEXT
 )
 ```
 
+### Hive (Preferences & Settings)
+Workout customization data is stored using Hive for fast, local key-value storage:
+
+- **Custom Exercise Preferences**: Per-exercise settings (always/never include, custom weights/reps)
+- **User Custom Exercises**: User-created exercises with all metadata
+- **Workout Generation Preferences**: Control exercise selection counts per muscle group
+- **User Activities**: Saved activities with usual durations
+
 ### Data Format
-- **Regular exercises**: Stored as JSON objects with fields: `name`, `muscleGroup`, `targetMuscles`, `sets`, `reps`, `weight`, `completedSets`, etc.
-- **Core workouts**: Stored as JSON objects with special flag: `{isCore: true, sets, exercisesPerSet, exercises: [...]}`
+- **Regular exercises**: `{name, muscleGroup, targetMuscles, sets, reps, weight, completedSets, isSkipped, ...}`
+- **Core workouts**: `{isCore: true, sets, exercisesPerSet, exercises: [...]}`
+- **Activities**: `{isActivity: true, activities: [{name, durationMinutes, notes}, ...]}`
 - Multiple workout types can be stored for the same date by appending to the exercises array

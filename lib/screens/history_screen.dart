@@ -396,7 +396,10 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           SizedBox(height: 16),
           // Legend for calendar colors
           _buildColorLegend(),
-          PandaStreakWidget(key: _pandaStreakKey),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: PandaStreakWidget(key: _pandaStreakKey),
+          ),
           ],
         ),
       ),

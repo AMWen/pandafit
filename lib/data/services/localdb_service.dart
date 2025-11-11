@@ -469,17 +469,13 @@ class LocalDB {
       date = now.toIso8601String().substring(0, 10);
     }
 
-    print('💾 Saving incomplete activities for $date: ${activities.length} activities');
-
     if (activities.isEmpty) {
       // If no activities, delete the incomplete entry
-      print('💾 No activities, deleting incomplete entry');
       await deleteIncompleteActivities(DateTime.parse(date));
       return;
     }
 
     final activitiesJson = jsonEncode(activities.map((a) => a.toMap()).toList());
-    print('💾 Activities JSON: $activitiesJson');
 
     await db.insert(
       'incomplete_workouts',
@@ -490,7 +486,6 @@ class LocalDB {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    print('💾 Successfully saved incomplete activities');
   }
 
   // Get incomplete activities for a specific date
@@ -498,24 +493,18 @@ class LocalDB {
     final db = await database;
     final dateStr = date.toIso8601String().substring(0, 10);
 
-    print('📖 Loading incomplete activities for $dateStr');
-
     final results = await db.query(
       'incomplete_workouts',
       where: 'date = ? AND muscle_group = ?',
       whereArgs: [dateStr, 'activities'],
     );
 
-    print('📖 Query returned ${results.length} results');
-
     if (results.isEmpty) {
-      print('📖 No incomplete activities found');
       return [];
     }
 
     final activitiesJson = jsonDecode(results.first['exercises'] as String) as List;
     final activities = activitiesJson.map((a) => Activity.fromMap(a)).toList();
-    print('📖 Loaded ${activities.length} incomplete activities');
     return activities;
   }
 

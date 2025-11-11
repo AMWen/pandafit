@@ -604,6 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
+              padding: EdgeInsets.only(top: 8),
               itemCount: completedExercises.length,
               itemBuilder: (context, index) {
                 final exercise = completedExercises[index];
@@ -633,6 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
+            padding: EdgeInsets.only(top: 8),
             itemCount: currentWorkout!.exercises.length + 1, // +1 for add button/card at end
             itemBuilder: (context, index) {
               // Show exercises first
@@ -761,7 +763,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return SingleChildScrollView(
       child: Padding(
-        padding: EdgeInsets.all(20),
+        padding: EdgeInsets.symmetric(vertical: 20),
         child: Column(
           children: [
             // Today's workout section
@@ -772,10 +774,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 onUndo: _undoCoreCompletion,
                 margin: const EdgeInsets.only(bottom: 16),
               ),
-              Text(
-                'Today: ${completedCoreWorkoutToday!.exercisesPerSet} exercises × ${completedCoreWorkoutToday!.sets} sets',
-                style: TextStyles.titleText,
-                textAlign: TextAlign.center,
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Today: ${completedCoreWorkoutToday!.exercisesPerSet} exercises × ${completedCoreWorkoutToday!.sets} sets',
+                  style: TextStyles.titleText,
+                  textAlign: TextAlign.center,
+                ),
               ),
               SizedBox(height: 16),
               buildCoreWorkoutCard(
@@ -786,10 +791,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 onLaunchUrl: _launchUrl,
               ),
             ] else if (currentCoreWorkout != null) ...[
-              Text(
-                'Today: ${currentCoreWorkout!.exercisesPerSet} exercises × ${currentCoreWorkout!.sets} sets',
-                style: TextStyles.titleText,
-                textAlign: TextAlign.center,
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Today: ${currentCoreWorkout!.exercisesPerSet} exercises × ${currentCoreWorkout!.sets} sets',
+                  style: TextStyles.titleText,
+                  textAlign: TextAlign.center,
+                ),
               ),
               SizedBox(height: 16),
               buildCoreWorkoutCard(
@@ -805,10 +813,13 @@ class _HomeScreenState extends State<HomeScreen> {
             if (yesterdayCoreWorkout != null || completedCoreWorkoutYesterday != null) ...[
               SizedBox(height: 16),
               if (isYesterdayCoreCompleted && completedCoreWorkoutYesterday != null) ...[
-                Text(
-                  'Yesterday: ${completedCoreWorkoutYesterday!.exercisesPerSet} exercises × ${completedCoreWorkoutYesterday!.sets} sets',
-                  style: TextStyles.titleText,
-                  textAlign: TextAlign.center,
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Yesterday: ${completedCoreWorkoutYesterday!.exercisesPerSet} exercises × ${completedCoreWorkoutYesterday!.sets} sets',
+                    style: TextStyles.titleText,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
                 SizedBox(height: 16),
                 buildCoreWorkoutCard(
@@ -819,10 +830,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   onLaunchUrl: _launchUrl,
                 ),
               ] else if (yesterdayCoreWorkout != null) ...[
-                Text(
-                  'Yesterday: ${yesterdayCoreWorkout!.exercisesPerSet} exercises × ${yesterdayCoreWorkout!.sets} sets',
-                  style: TextStyles.titleText,
-                  textAlign: TextAlign.center,
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Yesterday: ${yesterdayCoreWorkout!.exercisesPerSet} exercises × ${yesterdayCoreWorkout!.sets} sets',
+                    style: TextStyles.titleText,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
                 SizedBox(height: 16),
                 buildCoreWorkoutCard(

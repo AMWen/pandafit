@@ -3,18 +3,17 @@ import 'package:flutter/material.dart';
 import 'models/exercise_model.dart';
 import 'models/core_exercise_model.dart';
 
-Color primaryColor = Color.fromARGB(255, 3, 78, 140);
+const Color primaryColor = Color.fromARGB(255, 3, 78, 140);
 Color secondaryColor = Colors.grey[200]!;
 Color dullColor = Colors.grey[500]!;
-double pandaWidth = 200;
+const double pandaWidth = 200;
 
 // Calendar marker colors for different workout types
 class WorkoutColors {
   static const Color upperBody = Color(0xFF2196F3); // Blue
   static const Color lowerBody = Color(0xFFFF9800); // Orange
   static const Color core = Color(0xFF4CAF50); // Green
-  static const Color otherActivity = Color(0xFFFF69B4); // Hot Pink
-  static const Color mixed = Color(0xFF9C27B0); // Purple (when multiple types completed)
+  static const Color otherActivity = Color(0xFF9C27B0); // Hot Pink
 
   // Helper to get color for a specific muscle group
   static Color forMuscleGroup(MuscleGroup group) {
@@ -48,6 +47,7 @@ class TextStyles {
   static const TextStyle labelText = TextStyle(fontSize: 15, fontWeight: FontWeight.w600);
   static const TextStyle inputText = TextStyle(fontSize: 14, fontWeight: FontWeight.normal);
   static const TextStyle hintText = TextStyle(fontSize: 13, color: Colors.grey, fontStyle: FontStyle.italic);
+  static const TextStyle primaryBoldHeading = TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor);
 }
 
 // Exercise Database - Easy to Extend!
@@ -403,4 +403,31 @@ final List<CoreExercise> coreExercisePool = [
   ),
   CoreExercise(name: 'Goalies', amount: 20, increment: 2, videoLink: 'https://youtu.be/gDrMWkoQ1rY'),
 ];
+
+// Hive box names and keys - centralized to prevent mismatches
+class HiveBoxNames {
+  // Box names
+  static const String customExercisePreferences = 'customExercisePreferences';
+  static const String userCustomExercises = 'userCustomExercises';
+  static const String workoutGenerationPreferences = 'workoutGenerationPreferences';
+  static const String userActivities = 'userActivities';
+
+  // Keys for specific items
+  static const String workoutGenPrefsKey = 'preferences';
+}
+
+// Excel sheet names - centralized to prevent mismatches
+class ExcelSheetNames {
+  // Workout history sheets - use muscleGroupToString for consistency
+  static String get upperBody => muscleGroupToString(MuscleGroup.upperBody);
+  static String get lowerBody => muscleGroupToString(MuscleGroup.lowerBody);
+  static String get core => muscleGroupToString(MuscleGroup.core);
+  static String get otherActivities => muscleGroupToString(MuscleGroup.otherActivity);
+
+  // Settings & preferences sheets
+  static const String userActivities = 'User Activities';
+  static const String exercisePreferences = 'Exercise Preferences';
+  static const String userCustomExercises = 'User Custom Exercises';
+  static const String workoutSettings = 'Workout Settings';
+}
 

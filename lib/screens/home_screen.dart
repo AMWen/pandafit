@@ -166,10 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     // Load incomplete activities if they exist
-    debugPrint('📱 Incomplete activities loaded: ${incompleteActivities.length}');
-    debugPrint('📱 Activity routine: ${activityRoutine != null ? "exists" : "null"}');
     if (incompleteActivities.isNotEmpty && activityRoutine == null) {
-      debugPrint('📱 Restoring ${incompleteActivities.length} incomplete activities');
       setState(() {
         currentActivities = incompleteActivities;
         _showActivityReminder = true;
@@ -443,10 +440,8 @@ class _HomeScreenState extends State<HomeScreen> {
         activity.name,
         activity.durationMinutes,
       );
-      debugPrint('Activity saved to Hive: ${activity.name}');
     } catch (e) {
       // Activity still logged to daily workout, just not saved for autocomplete
-      debugPrint('Error saving activity to Hive: $e');
     }
 
     // Auto-save incomplete activities to database
@@ -1037,7 +1032,10 @@ class _HomeScreenState extends State<HomeScreen> {
           // Other Activities Tab
           _buildActivityPage(),
           // History Tab
-          HistoryScreen(key: _historyKey),
+          HistoryScreen(
+            key: _historyKey,
+            onDataImported: _loadTodaysWorkout,
+          ),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(

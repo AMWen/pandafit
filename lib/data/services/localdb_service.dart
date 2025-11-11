@@ -1,14 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:csv/csv.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 import '../models/exercise_model.dart';
 import '../models/core_exercise_model.dart';
 import '../models/activity_model.dart';
-import '../../utils/file_utils.dart';
+import '../models/history_models.dart';
 
 class WeightSuggestion {
   final double weight;
@@ -17,30 +15,6 @@ class WeightSuggestion {
   WeightSuggestion({
     required this.weight,
     this.motivationalMessage,
-  });
-}
-
-class ExerciseHistory {
-  final String date;
-  final double? weight;
-  final List<int> completedSets;
-
-  ExerciseHistory({
-    required this.date,
-    this.weight,
-    required this.completedSets,
-  });
-}
-
-class ActivityHistory {
-  final String date;
-  final int durationMinutes;
-  final String? notes;
-
-  ActivityHistory({
-    required this.date,
-    required this.durationMinutes,
-    this.notes,
   });
 }
 
@@ -793,56 +767,6 @@ class LocalDB {
         'target_area': newTargetArea.isNotEmpty ? newTargetArea : 'Unknown',
         'exercises': jsonEncode(remainingData),
       }, where: 'date = ?', whereArgs: [dateStr]);
-    }
-  }
-
-  // Export workout history as CSV
-  static Future<String> exportProgress() async {
-    final logs = await fetchLogs();
-
-    final rows = <List<String>>[
-      ['Date', 'Target Area', 'Exercises'],
-      ...logs.map((log) => [
-        log['date'] as String,
-        log['target_area'] as String,
-        log['exercises'] as String,
-      ]),
-    ];
-
-    final csvData = const ListToCsvConverter().convert(rows);
-    String message = await saveWorkoutAsCsv('pandafit_history.csv', csvData);
-    return message;
-  }
-
-  // Import workout history from CSV
-  static Future<String> importProgress() async {
-    final filePath = await pickLocation(['csv']);
-    try {
-      if (filePath != null) {
-        final file = File(filePath);
-        final csvString = await file.readAsString();
-        final rows = const CsvToListConverter(eol: '\r\n').convert(csvString);
-
-        final db = await database;
-
-        for (int i = 1; i < rows.length; i++) {
-          final date = rows[i][0] as String;
-          final targetArea = rows[i][1] as String;
-          final exercisesJson = rows[i][2] as String;
-
-          await db.insert('workout_logs', {
-            'date': date,
-            'target_area': targetArea,
-            'exercises': exercisesJson,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-
-        return 'Data imported successfully';
-      } else {
-        return 'Error: no file path provided';
-      }
-    } catch (e) {
-      return 'Error importing workout history: $e';
     }
   }
 }

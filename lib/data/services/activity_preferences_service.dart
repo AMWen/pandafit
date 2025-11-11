@@ -1,9 +1,10 @@
 import 'package:hive/hive.dart';
+import '../constants.dart';
 import '../models/custom_exercise_preferences.dart';
 
 /// Service for managing user activities using Hive
 class ActivityPreferencesService {
-  static const String _userActivitiesBox = 'userActivities';
+  static const String _userActivitiesBox = HiveBoxNames.userActivities;
 
   // Get all saved user activities
   static Future<List<UserActivity>> getAllActivities() async {

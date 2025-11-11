@@ -5,11 +5,16 @@ import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
 import '../data/models/activity_model.dart';
+import '../data/models/history_models.dart';
 import '../data/services/localdb_service.dart';
+import '../data/services/excel_export_service.dart';
+import '../data/services/excel_import_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  final VoidCallback? onDataImported;
+
+  const HistoryScreen({super.key, this.onDataImported});
 
   @override
   HistoryScreenState createState() => HistoryScreenState();
@@ -292,9 +297,14 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
               icon: Icon(Icons.upload),
               tooltip: 'Import',
               onPressed: () async {
-                String result = await LocalDB.importProgress();
+                if (!context.mounted) return;
+                String result = await ExcelImportService.importFromExcel(context);
                 if (context.mounted) {
                   showErrorSnackbar(context, result);
+                  // Refresh data after import
+                  refreshData();
+                  // Notify parent to refresh home screen data
+                  widget.onDataImported?.call();
                 }
               },
             ),
@@ -305,7 +315,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
               icon: Icon(Icons.save),
               tooltip: 'Export',
               onPressed: () async {
-                String result = await LocalDB.exportProgress();
+                String result = await ExcelExportService.exportToExcel();
                 if (context.mounted) {
                   showErrorSnackbar(context, result);
                 }

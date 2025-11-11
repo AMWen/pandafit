@@ -1,12 +1,13 @@
 import 'package:hive/hive.dart';
+import '../constants.dart';
 import '../models/custom_exercise_preferences.dart';
 
 /// Service for managing workout preferences using Hive
 class WorkoutPreferencesService {
-  static const String _customExercisePrefsBox = 'customExercisePreferences';
-  static const String _userCustomExercisesBox = 'userCustomExercises';
-  static const String _workoutGenPrefsBox = 'workoutGenerationPreferences';
-  static const String _workoutGenPrefsKey = 'preferences';
+  static const String _customExercisePrefsBox = HiveBoxNames.customExercisePreferences;
+  static const String _userCustomExercisesBox = HiveBoxNames.userCustomExercises;
+  static const String _workoutGenPrefsBox = HiveBoxNames.workoutGenerationPreferences;
+  static const String _workoutGenPrefsKey = HiveBoxNames.workoutGenPrefsKey;
 
   // Get all custom exercise preferences
   static Future<List<CustomExercisePreference>> getCustomExercisePreferences() async {

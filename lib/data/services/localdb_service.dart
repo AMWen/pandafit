@@ -32,6 +32,18 @@ class ExerciseHistory {
   });
 }
 
+class ActivityHistory {
+  final String date;
+  final int durationMinutes;
+  final String? notes;
+
+  ActivityHistory({
+    required this.date,
+    required this.durationMinutes,
+    this.notes,
+  });
+}
+
 class LocalDB {
   static Database? _db;
 
@@ -279,7 +291,7 @@ class LocalDB {
       motivationalMessage = "You're crushing $lastWeight lbs with high reps! Try $suggestedWeight lbs today for progression.";
     } else if (timesAtSimilarWeight >= 3) {
       suggestedWeight = lastWeight + 5.0;
-      motivationalMessage = "You've done $lastWeight lbs for $timesAtSimilarWeight workouts. Time to level up to $suggestedWeight lbs!";
+      motivationalMessage = "You've done $lastWeight lbs for $timesAtSimilarWeight workouts. Try some higher reps or level up to $suggestedWeight lbs!";
     } else {
       suggestedWeight = lastWeight;
     }
@@ -407,6 +419,12 @@ class LocalDB {
 
     for (var row in results) {
       final muscleGroupStr = row['muscle_group'] as String;
+
+      // Skip activities - they're stored separately and loaded via getIncompleteActivities
+      if (muscleGroupStr == 'activities') {
+        continue;
+      }
+
       final exercisesJson = jsonDecode(row['exercises'] as String) as List;
       final exercises = exercisesJson.map((e) => Exercise.fromJson(e)).toList();
 
@@ -439,6 +457,77 @@ class LocalDB {
       'incomplete_workouts',
       where: 'date = ? AND muscle_group = ?',
       whereArgs: [dateStr, muscleGroupStr],
+    );
+  }
+
+  // Incomplete activities methods
+  // Save incomplete activities (in-progress)
+  static Future<void> saveIncompleteActivities(List<Activity> activities, [String? date]) async {
+    final db = await database;
+    if (date == null) {
+      final now = DateTime.now();
+      date = now.toIso8601String().substring(0, 10);
+    }
+
+    print('💾 Saving incomplete activities for $date: ${activities.length} activities');
+
+    if (activities.isEmpty) {
+      // If no activities, delete the incomplete entry
+      print('💾 No activities, deleting incomplete entry');
+      await deleteIncompleteActivities(DateTime.parse(date));
+      return;
+    }
+
+    final activitiesJson = jsonEncode(activities.map((a) => a.toMap()).toList());
+    print('💾 Activities JSON: $activitiesJson');
+
+    await db.insert(
+      'incomplete_workouts',
+      {
+        'date': date,
+        'muscle_group': 'activities', // Special identifier for activities
+        'exercises': activitiesJson,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    print('💾 Successfully saved incomplete activities');
+  }
+
+  // Get incomplete activities for a specific date
+  static Future<List<Activity>> getIncompleteActivities(DateTime date) async {
+    final db = await database;
+    final dateStr = date.toIso8601String().substring(0, 10);
+
+    print('📖 Loading incomplete activities for $dateStr');
+
+    final results = await db.query(
+      'incomplete_workouts',
+      where: 'date = ? AND muscle_group = ?',
+      whereArgs: [dateStr, 'activities'],
+    );
+
+    print('📖 Query returned ${results.length} results');
+
+    if (results.isEmpty) {
+      print('📖 No incomplete activities found');
+      return [];
+    }
+
+    final activitiesJson = jsonDecode(results.first['exercises'] as String) as List;
+    final activities = activitiesJson.map((a) => Activity.fromMap(a)).toList();
+    print('📖 Loaded ${activities.length} incomplete activities');
+    return activities;
+  }
+
+  // Delete incomplete activities
+  static Future<void> deleteIncompleteActivities(DateTime date) async {
+    final db = await database;
+    final dateStr = date.toIso8601String().substring(0, 10);
+
+    await db.delete(
+      'incomplete_workouts',
+      where: 'date = ? AND muscle_group = ?',
+      whereArgs: [dateStr, 'activities'],
     );
   }
 

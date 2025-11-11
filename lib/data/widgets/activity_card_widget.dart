@@ -8,12 +8,14 @@ import '../services/activity_preferences_service.dart';
 class ActivityCard extends StatelessWidget {
   final Activity activity;
   final VoidCallback? onDelete;
+  final VoidCallback? onEdit;
   final bool isReadOnly;
 
   const ActivityCard({
     super.key,
     required this.activity,
     this.onDelete,
+    this.onEdit,
     this.isReadOnly = false,
   });
 
@@ -59,13 +61,21 @@ class ActivityCard extends StatelessWidget {
                 ],
               ),
             ),
-            // Delete button (only for non-completed activities)
-            if (!isReadOnly && onDelete != null)
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: Colors.red[700]),
-                onPressed: onDelete,
-                tooltip: 'Remove',
-              ),
+            // Edit and Delete buttons (only for non-completed activities)
+            if (!isReadOnly) ...[
+              if (onEdit != null)
+                IconButton(
+                  icon: Icon(Icons.edit_outlined, color: secondaryColor),
+                  onPressed: onEdit,
+                  tooltip: 'Edit',
+                ),
+              if (onDelete != null)
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.red[700]),
+                  onPressed: onDelete,
+                  tooltip: 'Remove',
+                ),
+            ],
           ],
         ),
       ),
@@ -75,12 +85,14 @@ class ActivityCard extends StatelessWidget {
 
 class ActivityInputWidget extends StatefulWidget {
   final Function(Activity) onAdd;
+  final Function(bool)? onFormChanged;
   final List<String> previousActivityNames;
   final List<Activity> currentActivities;
 
   const ActivityInputWidget({
     super.key,
     required this.onAdd,
+    this.onFormChanged,
     this.previousActivityNames = const [],
     this.currentActivities = const [],
   });
@@ -94,16 +106,39 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
   final _nameController = TextEditingController();
   final _durationController = TextEditingController();
   final _notesController = TextEditingController();
+  final _durationFocusNode = FocusNode();
+  final _notesFocusNode = FocusNode();
+  FocusNode? _autocompleteFocusNode;
+  TextEditingController? _autocompleteController;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationFocusNode.addListener(_onFocusChanged);
+    _notesFocusNode.addListener(_onFocusChanged);
+  }
 
   @override
   void dispose() {
+    _durationFocusNode.removeListener(_onFocusChanged);
+    _notesFocusNode.removeListener(_onFocusChanged);
+    _autocompleteFocusNode?.removeListener(_onFocusChanged);
+    _durationFocusNode.dispose();
+    _notesFocusNode.dispose();
     _nameController.dispose();
     _durationController.dispose();
     _notesController.dispose();
     super.dispose();
   }
 
-  void _submitActivity() {
+  void _onFocusChanged() {
+    final hasFocus = (_autocompleteFocusNode?.hasFocus ?? false) ||
+                     _durationFocusNode.hasFocus ||
+                     _notesFocusNode.hasFocus;
+    widget.onFormChanged?.call(hasFocus);
+  }
+
+  void submitActivity() {
     if (_formKey.currentState!.validate()) {
       final activity = Activity(
         name: _nameController.text.trim(),
@@ -115,6 +150,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
 
       // Clear form
       _nameController.clear();
+      _autocompleteController?.clear();
       _durationController.clear();
       _notesController.clear();
     }
@@ -164,6 +200,16 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                 fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                   _nameController.text = controller.text;
                   _nameController.selection = controller.selection;
+
+                  // Store reference to autocomplete's controller and focus node
+                  _autocompleteController = controller;
+
+                  if (_autocompleteFocusNode != focusNode) {
+                    _autocompleteFocusNode?.removeListener(_onFocusChanged);
+                    _autocompleteFocusNode = focusNode;
+                    _autocompleteFocusNode!.addListener(_onFocusChanged);
+                  }
+
                   return TextFormField(
                     controller: controller,
                     focusNode: focusNode,
@@ -200,6 +246,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
               // Duration
               TextFormField(
                 controller: _durationController,
+                focusNode: _durationFocusNode,
                 style: TextStyle(color: secondaryColor),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -233,6 +280,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
               // Notes
               TextFormField(
                 controller: _notesController,
+                focusNode: _notesFocusNode,
                 style: TextStyle(color: secondaryColor),
                 maxLines: 3,
                 decoration: InputDecoration(
@@ -246,24 +294,6 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(color: secondaryColor, width: 2),
-                  ),
-                ),
-              ),
-
-              SizedBox(height: 16),
-
-              // Add button
-              Center(
-                child: ElevatedButton(
-                  onPressed: _submitActivity,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  ),
-                  child: Text(
-                    'Add Activity',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),

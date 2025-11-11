@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -33,6 +34,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isCoreCompleted = false;
   bool isYesterdayCoreCompleted = false;
   bool isActivityCompleted = false;
+  bool _showActivityReminder = false;
+  bool _isActivityFormActive = false;
+  final GlobalKey _activityFormKey = GlobalKey();
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
   ActivityRoutine? completedActivitiesToday;
@@ -113,6 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final activityRoutine = await LocalDB.getActivitiesForDate(today);
     final activityNames = await ActivityPreferencesService.getActivityNames();
     final incompleteWorkouts = await LocalDB.getIncompleteWorkouts(today);
+    final incompleteActivities = await LocalDB.getIncompleteActivities(today);
 
     // Load incomplete workouts into cache
     cachedWorkouts = incompleteWorkouts;
@@ -159,6 +164,17 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       previousActivityNames = activityNames;
     });
+
+    // Load incomplete activities if they exist
+    debugPrint('📱 Incomplete activities loaded: ${incompleteActivities.length}');
+    debugPrint('📱 Activity routine: ${activityRoutine != null ? "exists" : "null"}');
+    if (incompleteActivities.isNotEmpty && activityRoutine == null) {
+      debugPrint('📱 Restoring ${incompleteActivities.length} incomplete activities');
+      setState(() {
+        currentActivities = incompleteActivities;
+        _showActivityReminder = true;
+      });
+    }
 
     // Default to Upper Body selection
     setState(() {
@@ -412,6 +428,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _addActivity(Activity activity) async {
     setState(() {
       currentActivities.add(activity);
+      _showActivityReminder = true;
+      _isActivityFormActive = false;
       // Add to previous names if not already there
       if (!previousActivityNames.contains(activity.name)) {
         previousActivityNames.add(activity.name);
@@ -430,12 +448,74 @@ class _HomeScreenState extends State<HomeScreen> {
       // Activity still logged to daily workout, just not saved for autocomplete
       debugPrint('Error saving activity to Hive: $e');
     }
+
+    // Auto-save incomplete activities to database
+    await LocalDB.saveIncompleteActivities(currentActivities);
   }
 
-  void _removeActivity(int index) {
+  void _removeActivity(int index) async {
+    final activityToRemove = currentActivities[index];
+
     setState(() {
       currentActivities.removeAt(index);
+      if (currentActivities.isEmpty) {
+        _showActivityReminder = false;
+      }
     });
+
+    // Check if this activity exists anywhere in the workout history
+    final existsInHistory = await _activityExistsInHistory(activityToRemove.name);
+
+    // If it doesn't exist in history, remove from autocomplete
+    if (!existsInHistory) {
+      await ActivityPreferencesService.deleteActivity(activityToRemove.name);
+    }
+
+    // Auto-save incomplete activities to database
+    await LocalDB.saveIncompleteActivities(currentActivities);
+  }
+
+  Future<void> _editActivity(int index) async {
+    final activity = currentActivities[index];
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => _EditActivityDialog(activity: activity),
+    );
+
+    if (result != null) {
+      setState(() {
+        currentActivities[index] = activity.copyWith(
+          durationMinutes: result['duration'] as int,
+          notes: (result['notes'] as String).isEmpty ? null : result['notes'] as String,
+        );
+      });
+
+      // Auto-save incomplete activities to database
+      await LocalDB.saveIncompleteActivities(currentActivities);
+    }
+  }
+
+  Future<bool> _activityExistsInHistory(String activityName) async {
+    final db = await LocalDB.database;
+    final logs = await db.query('workout_logs');
+
+    for (var log in logs) {
+      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+
+      for (var item in exercisesJson) {
+        if (item is Map && item['isActivity'] == true) {
+          final activities = (item['activities'] as List);
+          for (var activity in activities) {
+            if (activity['name'] == activityName) {
+              return true; // Found in history
+            }
+          }
+        }
+      }
+    }
+
+    return false; // Not found in history
   }
 
   Future<void> _completeActivities() async {
@@ -448,12 +528,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await LocalDB.insertActivities(activityRoutine);
+
+      // Delete incomplete activities from database since they're now completed
+      await LocalDB.deleteIncompleteActivities(today);
+
       _showSnackbar('Activities saved! Great job!');
 
       setState(() {
         isActivityCompleted = true;
         completedActivitiesToday = activityRoutine;
         currentActivities = [];
+        _showActivityReminder = false;
       });
     } catch (e) {
       _showSnackbar('Error saving activities: $e');
@@ -807,12 +892,29 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // Scrollable content
         Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                // Input widget
-                ActivityInputWidget(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              // Unfocus when tapping outside input fields
+              FocusScope.of(context).unfocus();
+            },
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // Input widget
+                  ActivityInputWidget(
+                  key: _activityFormKey,
                   onAdd: _addActivity,
+                  onFormChanged: (hasInput) {
+                    // Defer setState to avoid calling during build
+                    Future.microtask(() {
+                      if (mounted) {
+                        setState(() {
+                          _isActivityFormActive = hasInput;
+                        });
+                      }
+                    });
+                  },
                   previousActivityNames: previousActivityNames,
                   currentActivities: currentActivities,
                 ),
@@ -833,6 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemBuilder: (context, index) {
                       return ActivityCard(
                         activity: currentActivities[index],
+                        onEdit: () => _editActivity(index),
                         onDelete: () => _removeActivity(index),
                       );
                     },
@@ -841,21 +944,60 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-        ),
+            ),
+          ),
 
-        // Complete button - always at bottom
-        if (currentActivities.isNotEmpty)
+        // Reminder banner
+        if (_showActivityReminder && currentActivities.isNotEmpty)
+          Container(
+            margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade100,
+              border: Border.all(color: Colors.amber.shade700, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.amber.shade900, size: 24),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Don\'t forget to tap "Complete Activities" to save! (Tap outside form if needed)',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Action button - changes based on context
+        if (_isActivityFormActive || currentActivities.isNotEmpty)
           Padding(
             padding: EdgeInsets.all(16),
             child: Center(
               child: ElevatedButton(
-                onPressed: _completeActivities,
+                onPressed: () {
+                  if (_isActivityFormActive) {
+                    // Call form's submit method
+                    final state = _activityFormKey.currentState;
+                    if (state != null) {
+                      (state as dynamic).submitActivity();
+                    }
+                  } else {
+                    _completeActivities();
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
                 ),
                 child: Text(
-                  'Complete Activities',
+                  _isActivityFormActive ? 'Add Activity' : 'Complete Activities',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -984,6 +1126,93 @@ class _WorkoutPageWidgetState extends State<_WorkoutPageWidget> {
       body: widget.isLoading
           ? Center(child: CircularProgressIndicator())
           : widget.workoutView,
+    );
+  }
+}
+
+class _EditActivityDialog extends StatefulWidget {
+  final Activity activity;
+
+  const _EditActivityDialog({required this.activity});
+
+  @override
+  State<_EditActivityDialog> createState() => _EditActivityDialogState();
+}
+
+class _EditActivityDialogState extends State<_EditActivityDialog> {
+  late final TextEditingController _durationController;
+  late final TextEditingController _notesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationController = TextEditingController(text: widget.activity.durationMinutes.toString());
+    _notesController = TextEditingController(text: widget.activity.notes ?? '');
+  }
+
+  @override
+  void dispose() {
+    _durationController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _save(BuildContext context) {
+    final duration = int.tryParse(_durationController.text);
+    if (duration != null && duration > 0) {
+      Navigator.pop(context, {
+        'duration': duration,
+        'notes': _notesController.text.trim(),
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter a valid duration'),
+          duration: Duration(milliseconds: 800),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.activity.name, style: TextStyles.dialogTitle),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _durationController,
+              decoration: InputDecoration(
+                labelText: 'Duration (minutes)',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: _notesController,
+              decoration: InputDecoration(
+                labelText: 'Notes',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => _save(context),
+          child: Text('Save'),
+        ),
+      ],
     );
   }
 }

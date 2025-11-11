@@ -21,6 +21,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   late TabController _tabController;
   Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
   Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
+  Map<String, List<ActivityHistory>> _activitiesHistory = {};
   bool _isLoadingProgress = false;
   final Set<String> _expandedExercises = {}; // Track which exercises show full history
   static const int _defaultHistoryLimit = 10;
@@ -35,7 +36,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
     // Don't load data immediately - wait for first build
   }
@@ -55,7 +56,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   }
 
   void _onTabChanged() {
-    if (_tabController.index > 0 && _upperBodyHistory.isEmpty && _lowerBodyHistory.isEmpty && !_isLoadingProgress) {
+    if (_tabController.index > 0 && _upperBodyHistory.isEmpty && _lowerBodyHistory.isEmpty && _activitiesHistory.isEmpty && !_isLoadingProgress) {
       _loadProgressData();
     }
   }
@@ -72,6 +73,8 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   void refreshData() {
     _loadWorkoutDates();
     _pandaStreakKey.currentState?.refresh();
+    // Always refresh progress data to handle additions, deletions, and undos
+    _loadProgressData();
   }
 
   Future<void> _loadWorkoutDates([DateTime? forMonth]) async {
@@ -146,6 +149,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
     Map<String, List<ExerciseHistory>> upperHistory = {};
     Map<String, List<ExerciseHistory>> lowerHistory = {};
+    Map<String, List<ActivityHistory>> activitiesHistory = {};
 
     for (var log in logs) {
       final dateStr = log['date'] as String;
@@ -170,11 +174,27 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           }
         }
       }
+
+      // Load activities
+      for (var item in exercisesJson) {
+        if (item is Map && item['isActivity'] == true) {
+          final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
+          for (var activity in activities) {
+            final entry = ActivityHistory(
+              date: dateStr,
+              durationMinutes: activity.durationMinutes,
+              notes: activity.notes,
+            );
+            activitiesHistory.putIfAbsent(activity.name, () => []).add(entry);
+          }
+        }
+      }
     }
 
     setState(() {
       _upperBodyHistory = upperHistory;
       _lowerBodyHistory = lowerHistory;
+      _activitiesHistory = activitiesHistory;
       _isLoadingProgress = false;
     });
   }
@@ -242,10 +262,27 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           labelColor: secondaryColor,
           unselectedLabelColor: secondaryColor.withValues(alpha: 0.6),
           indicatorColor: secondaryColor,
-          tabs: const [
+          tabs: [
             Tab(text: 'Calendar'),
-            Tab(text: 'Upper Body'),
-            Tab(text: 'Lower Body'),
+            Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Upper '),
+                  Icon(Icons.person, size: 16),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Lower '),
+                  Icon(Icons.person, size: 16),
+                ],
+              ),
+            ),
+            Tab(text: 'Activities'),
           ],
         ),
         actions: [
@@ -284,6 +321,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           _buildCalendarView(),
           _buildProgressList(_upperBodyHistory),
           _buildProgressList(_lowerBodyHistory),
+          _buildActivitiesList(_activitiesHistory),
         ],
       ),
     );
@@ -516,6 +554,146 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivitiesList(Map<String, List<ActivityHistory>> historyMap) {
+    if (_isLoadingProgress) {
+      return Center(child: CircularProgressIndicator());
+    }
+
+    if (historyMap.isEmpty) {
+      return Center(
+        child: Text(
+          'No activity history yet.\nStart logging activities to see progress!',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    final activityNames = historyMap.keys.toList()..sort();
+
+    return RefreshIndicator(
+      onRefresh: _loadProgressData,
+      child: ListView.builder(
+        padding: EdgeInsets.all(16),
+        itemCount: activityNames.length,
+        itemBuilder: (context, index) {
+          final activityName = activityNames[index];
+          final history = historyMap[activityName]!;
+          return _buildActivityCard(activityName, history);
+        },
+      ),
+    );
+  }
+
+  Widget _buildActivityCard(String activityName, List<ActivityHistory> history) {
+    // Sort by date (most recent first)
+    final sortedHistory = List<ActivityHistory>.from(history)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    // Check if this activity is expanded
+    final isExpanded = _expandedExercises.contains(activityName);
+    final hasMoreEntries = sortedHistory.length > _defaultHistoryLimit;
+
+    // Limit history to 10 entries unless expanded
+    final displayedHistory = isExpanded
+        ? sortedHistory
+        : sortedHistory.take(_defaultHistoryLimit).toList();
+
+    return Card(
+      margin: EdgeInsets.only(bottom: 4),
+      elevation: 2,
+      child: Padding(
+        padding: EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              activityName,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowHeight: 32,
+                dataRowMinHeight: 28,
+                dataRowMaxHeight: 60,
+                columnSpacing: 30,
+                horizontalMargin: 0,
+                dividerThickness: 0,
+                columns: [
+                  DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Duration', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Notes (👆 to expand)', style: TextStyle(fontWeight: FontWeight.bold))),
+                ],
+                rows: displayedHistory.map((record) {
+                  final dateStr = _formatDate(record.date);
+                  final durationStr = '${record.durationMinutes} min';
+                  final notesStr = record.notes ?? '';
+
+                  return DataRow(cells: [
+                    DataCell(Text(dateStr)),
+                    DataCell(Text(durationStr)),
+                    DataCell(
+                      _buildNotesCell(notesStr),
+                    ),
+                  ]);
+                }).toList(),
+              ),
+            ),
+            // Show "Load More" or "Show Less" button if needed
+            if (hasMoreEntries)
+              Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        if (isExpanded) {
+                          _expandedExercises.remove(activityName);
+                        } else {
+                          _expandedExercises.add(activityName);
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      isExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                    ),
+                    label: Text(
+                      isExpanded
+                          ? 'Show Less'
+                          : 'Load All (${sortedHistory.length} total)',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotesCell(String notes) {
+    if (notes.isEmpty) {
+      return Text('');
+    }
+
+    return Tooltip(
+      message: notes,
+      triggerMode: TooltipTriggerMode.tap,
+      child: Container(
+        constraints: BoxConstraints(minWidth: 100, maxWidth: 200),
+        child: Text(
+          notes,
+          style: TextStyle(fontSize: 13),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );

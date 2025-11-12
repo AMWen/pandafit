@@ -20,9 +20,13 @@ This app lets you generate personalized workouts for different muscle groups eac
 - **Exercise timer**: Built-in countdown timer for timed exercises (planks, holds) with progress indicator and audio alarm
 - **Activity tracking**: Tracks completed workouts by muscle group in a calendar view with color-coded dots
 - **Progress tracking**: View exercise history with weight and rep progression in the Upper Body and Lower Body tabs
-- **Progress import and export**: Import and export workout history as CSV files
+- **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 8 sheets (Upper Body, Lower Body, Core, Activities history, plus settings and preferences)
+- **Selective data import**: Import dialog lets you choose which data to import (workout history, settings, custom exercises, etc.) with replace or merge options
+- **Device migration**: Easily transfer all your workout data, custom exercises, and preferences to a new device
+- **Save incomplete activities**: Start logging an activity and save progress even if not finished
 - **Yesterday's catchup**: Core workouts allow completing yesterday's missed workout
 - **Video links**: Each exercise includes a YouTube video link for proper form demonstration
+- **Onboarding flow**: Friendly introduction screens for first-time users
 
 ## Screenshots
 <div style="text-align: left;">
@@ -104,7 +108,9 @@ flutter build ios --release
 - Track activity name, duration (minutes), and optional notes
 - Auto-complete from previously logged activities
 - Pre-fills usual duration for saved activities
+- Save incomplete activities for later completion
 - Manage saved activities in settings
+- Dedicated tab in History screen for viewing activity logs
 - Completion tracked in calendar view with dedicated color
 
 ## Project Structure
@@ -116,9 +122,12 @@ lib/
 │   │   ├── exercise_model.dart                # Upper/Lower body exercise & routine models
 │   │   ├── core_exercise_model.dart           # Core exercise & routine models
 │   │   ├── activity_model.dart                # Activity & routine models
+│   │   ├── history_models.dart                # Shared models for exercise and activity history
 │   │   └── custom_exercise_preferences.dart   # Custom exercise preferences models
 │   ├── services/
 │   │   ├── localdb_service.dart               # SQLite database with all workout methods
+│   │   ├── excel_export_service.dart          # Excel export with 8 organized sheets
+│   │   ├── excel_import_service.dart          # Excel import with selective data loading
 │   │   ├── workout_generator.dart             # Upper/Lower body workout generator
 │   │   ├── core_workout_generator.dart        # Core workout generator with volume scaling
 │   │   ├── workout_preferences_service.dart   # Hive storage for workout customization
@@ -129,15 +138,16 @@ lib/
 │   │   ├── core_workout_card_widget.dart      # Single card for all core exercises
 │   │   ├── activity_card_widget.dart          # Activity display and input widgets
 │   │   ├── countdown_widget.dart              # Timer widget for timed exercises
-│   │   └── panda_streak_widget.dart           # Workout streak display
-│   └── constants.dart                         # Exercise database & core exercise pool
+│   │   ├── panda_streak_widget.dart           # Workout streak display
+│   │   └── import_dialog.dart                 # Selective import dialog with checkboxes
+│   └── constants.dart                         # Exercise database, core exercises, constants
 ├── screens/
 │   ├── home_screen.dart                       # Main screen with 5 tabs (Upper/Lower/Core/Activities/History)
-│   ├── history_screen.dart                    # Calendar view with progress tracking
+│   ├── history_screen.dart                    # Calendar, streak, and history tabs (Upper/Lower/Core/Activities)
+│   ├── onboarding.dart                        # First-time user onboarding screens
 │   ├── workout_settings_screen.dart           # Workout customization and preferences
 │   └── create_custom_exercise_screen.dart     # Create custom exercises
 ├── utils/
-│   ├── file_utils.dart                        # CSV import/export utilities
 │   └── ui_helpers.dart                        # UI helper functions
 └── main.dart
 assets/
@@ -175,10 +185,22 @@ incomplete_workouts (
 ### Hive (Preferences & Settings)
 Workout customization data is stored using Hive for fast, local key-value storage:
 
-- **Custom Exercise Preferences**: Per-exercise settings (always/never include, custom weights/reps)
-- **User Custom Exercises**: User-created exercises with all metadata
-- **Workout Generation Preferences**: Control exercise selection counts per muscle group
-- **User Activities**: Saved activities with usual durations
+- **Custom Exercise Preferences** (`customExercisePreferences`): Per-exercise settings (always/never include, custom weights/reps)
+- **User Custom Exercises** (`userCustomExercises`): User-created exercises with all metadata
+- **Workout Generation Preferences** (`workoutGenerationPreferences`): Control exercise selection counts per muscle group
+- **User Activities** (`userActivities`): Saved activities with usual durations
+
+### Excel Export Structure
+Data is exported to an XLSX file with 8 organized sheets for easy viewing and device migration:
+
+**Workout History Sheets:**
+- Upper Body, Lower Body, Core, Other Activities (date-based workout logs with exercises/weights/reps)
+
+**Settings & Preferences Sheets:**
+- Workout Settings (exercise counts per workout type)
+- Exercise Preferences (always/never include settings)
+- User Custom Exercises (custom exercise definitions)
+- User Activities (saved activities with usual durations)
 
 ### Data Format
 - **Regular exercises**: `{name, muscleGroup, targetMuscles, sets, reps, weight, completedSets, isSkipped, ...}`

@@ -14,6 +14,7 @@ import '../data/widgets/exercise_card_widget.dart';
 import '../data/widgets/core_workout_card_widget.dart';
 import '../data/widgets/activity_card_widget.dart';
 import '../data/widgets/add_exercise_card_widget.dart';
+import '../data/widgets/inline_youtube_player.dart';
 import '../utils/ui_helpers.dart';
 import 'history_screen.dart';
 import 'workout_settings_screen.dart';
@@ -37,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showActivityReminder = false;
   bool _isActivityFormActive = false;
   final GlobalKey _activityFormKey = GlobalKey();
+  String? _currentCoreVideoUrl; // Track currently playing core video
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
   ActivityRoutine? completedActivitiesToday;
@@ -556,7 +558,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _launchUrl(String url) async {
+  /// Launch URL externally (for upper/lower body YouTube search links)
+  Future<void> _launchUrlExternal(String url) async {
     if (url.isEmpty) {
       _showSnackbar('No video link available');
       return;
@@ -567,6 +570,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!await launchUrl(parsedUrl, mode: LaunchMode.externalApplication)) {
       _showSnackbar('Could not open video link');
     }
+  }
+
+  /// Launch URL with inline video player (for core exercises with direct video links)
+  void _launchUrl(String url) {
+    if (url.isEmpty) {
+      _showSnackbar('No video link available');
+      return;
+    }
+
+    setState(() {
+      _currentCoreVideoUrl = url;
+    });
   }
 
   void _showSnackbar(String message) {
@@ -606,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return ExerciseCard(
                   exercise: exercise,
                   onUpdate: (_) {}, // Read-only, no updates allowed
-                  onLaunchVideo: () => _launchUrl(exercise.videoLink),
+                  onLaunchVideo: () => _launchUrlExternal(exercise.videoLink),
                   isReadOnly: true,
                 );
               },
@@ -641,7 +656,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return ExerciseCard(
                   exercise: displayExercise,
                   onUpdate: _updateExercise,
-                  onLaunchVideo: () => _launchUrl(exercise.videoLink),
+                  onLaunchVideo: () => _launchUrlExternal(exercise.videoLink),
                   onSkip: () => _skipExercise(displayExercise),
                   onRestore: () => _restoreExercise(displayExercise),
                 );
@@ -761,6 +776,19 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.symmetric(vertical: 20),
         child: Column(
           children: [
+            // Inline video player at the top
+            if (_currentCoreVideoUrl != null) ...[
+              InlineYouTubePlayer(
+                key: ValueKey(_currentCoreVideoUrl), // Force rebuild when URL changes
+                videoUrl: _currentCoreVideoUrl!,
+                onClose: () {
+                  setState(() {
+                    _currentCoreVideoUrl = null;
+                  });
+                },
+              ),
+              SizedBox(height: 16),
+            ],
             // Today's workout section
             if (isCoreCompleted && completedCoreWorkoutToday != null) ...[
               // Completion message

@@ -20,13 +20,13 @@ This app lets you generate personalized workouts for different muscle groups eac
 - **Exercise timer**: Built-in countdown timer for timed exercises (planks, holds) with progress indicator and audio alarm
 - **Activity tracking**: Tracks completed workouts by muscle group in a calendar view with color-coded dots
 - **Progress tracking**: View exercise history with weight and rep progression in the Upper Body and Lower Body tabs
-- **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 8 sheets (Upper Body, Lower Body, Core, Activities history, plus settings and preferences)
-- **Selective data import**: Import dialog lets you choose which data to import (workout history, settings, custom exercises, etc.) with replace or merge options
 - **Device migration**: Easily transfer all your workout data, custom exercises, and preferences to a new device
-- **Save incomplete activities**: Start logging an activity and save progress even if not finished
+  - **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 8 sheets (Upper Body, Lower Body, Core, Activities history, plus settings and preferences)
+  - **Selective data import**: Import dialog lets you choose which data to import (workout history, settings, custom exercises, etc.) with replace or merge options
 - **Yesterday's catchup**: Core workouts allow completing yesterday's missed workout
 - **Video links**: Each exercise includes a YouTube video link for proper form demonstration
-- **Onboarding flow**: Friendly introduction screens for first-time users
+  - Upper/Lower body: Opens YouTube search results in external browser/app
+  - Core exercises: Watch videos in-app with Picture-in-Picture support
 
 ## Screenshots
 <div style="text-align: left;">
@@ -81,6 +81,18 @@ For iOS (need to create an an iOS Development Certificate in Apple Developer acc
 ```bash
 flutter build ios --release
 ```
+
+## Picture-in-Picture Video Support (Core Exercises)
+
+Watch core exercise form videos while following your workout! When you tap on a core exercise to watch its video:
+
+- The video opens in an integrated YouTube player
+- **On Android**: Press the home button or switch apps to activate PiP mode - the video continues playing in a small floating window
+- **On iOS**: PiP support varies by device and iOS version
+- Use the floating window to watch form demonstrations while performing exercises
+- Tap the info icon in the video player for PiP instructions
+
+This feature is available for **core exercises only** (which have direct video links). Upper and lower body exercises open YouTube search results in your external browser/app, allowing you to browse multiple form videos.
 
 ## Workout Types
 
@@ -139,6 +151,7 @@ lib/
 │   │   ├── activity_card_widget.dart          # Activity display and input widgets
 │   │   ├── countdown_widget.dart              # Timer widget for timed exercises
 │   │   ├── panda_streak_widget.dart           # Workout streak display
+│   │   ├── youtube_player_widget.dart         # YouTube player with PiP support
 │   │   └── import_dialog.dart                 # Selective import dialog with checkboxes
 │   └── constants.dart                         # Exercise database, core exercises, constants
 ├── screens/

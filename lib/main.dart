@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/history_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding.dart';
 import 'data/constants.dart';
 import 'data/models/custom_exercise_preferences.dart';
 
@@ -18,7 +20,7 @@ void main() async {
   Hive.registerAdapter(UserActivityAdapter());
   Hive.registerAdapter(WorkoutGenerationPreferencesAdapter());
 
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class SwipeScreens extends StatelessWidget {
@@ -37,8 +39,39 @@ class SwipeScreens extends StatelessWidget {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool _showOnboarding = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFirstTime();
+  }
+
+  Future<void> _checkFirstTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
+    setState(() {
+      _showOnboarding = !hasSeenOnboarding;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _completeOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hasSeenOnboarding', true);
+    setState(() {
+      _showOnboarding = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +112,13 @@ class MyApp extends StatelessWidget {
           selectionHandleColor: secondaryColor,
         ),
       ),
-      home: SwipeScreens(),
+      home: _isLoading
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : _showOnboarding
+              ? OnboardingPage(onDone: _completeOnboarding)
+              : const SwipeScreens(),
       debugShowCheckedModeBanner: false,
     );
   }

@@ -1,17 +1,15 @@
 package com.pandateam.pandaFit
 
-import android.os.Build
 import android.os.Bundle
-import androidx.core.view.WindowCompat
+import androidx.activity.enableEdgeToEdge
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        // Enable edge-to-edge mode before calling super.onCreate()
+        // This is the recommended approach for Android 15+ compatibility
+        enableEdgeToEdge()
 
-        // Enable edge-to-edge for backward compatibility with Android 15+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-        }
+        super.onCreate(savedInstanceState)
     }
 }

@@ -10,160 +10,176 @@ class OnboardingPage extends StatelessWidget {
   List<PageViewModel> getPages(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final width = screenWidth / 2.5;
+    final spacing = screenWidth / 70;
 
     return [
       PageViewModel(
         title: "Welcome to PandaFit",
-        body:
-            "Your personal workout companion! Track all your workouts in a single offline app.\n\n"
-            "No account needed, your data stays with you!",
+        bodyWidget: const Text(
+          "Say hi to your 🐼 workout companion, and track all your workouts in one app!\n\n"
+          "No account needed, your data stays with you!",
+          textAlign: TextAlign.left,
+          style: TextStyle(fontSize: 18),
+        ),
         image: Center(
-          child: Container(
-            width: screenWidth / 2,
-            height: screenWidth / 2,
-            color: Colors.grey[300],
-            child: Center(
-              child: Text(
-                'PandaFit Logo\n🐼💪',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
+          child: Center(child: Image.asset("assets/images/small_icon.png", width: screenWidth / 2)),
         ),
       ),
       PageViewModel(
         title: "Daily Auto-Generated Workouts",
-        body:
-            "Fresh workouts are randomly generated every day, with exercises that specifically target various muscle groups.\n\n"
-            "Simply select the type of workout you want to do for the day to get started!\n\n"
-            "Tip: for Core, each side counts as 1 rep, but feel free to challenge yourself if you want to go for more!",
+        bodyWidget: const Text(
+          "Fresh workouts are randomly generated for you, targeting various muscle groups. No decision paralysis here!\n\n"
+          "Simply select the type of workout you want to do for the day to get started.\n\n"
+          "Friends see the same workout, so you can challenge them to join you! 🔥",
+          textAlign: TextAlign.left,
+          style: TextStyle(fontSize: 18),
+        ),
         image: Center(
-          child: Container(
-            width: width,
-            height: width * 1.5,
-            color: Colors.grey[300],
-            child: Center(
-              child: Text(
-                'Screenshot:\nHome screen with\nUpper/Lower/Core tabs\nshowing today\'s workouts',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12),
-              ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/2a_upper_body.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/2b_lower_body.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/2c_core.png", width: width),
+              ],
             ),
           ),
         ),
       ),
       PageViewModel(
-        title: "Tailor Your Workout",
-        body:
-            "Mark exercises as complete, skip them, or adjust weights as you go. Each exercise includes video links, form notes, and target muscles.\n\n"
-            "Listen to your body! Reduce weight or reps as needed, or skip exercises — there's no shame in modifying your workout.\n\n"
-            "Starting out? Celebrate every attempt! Your progress is automatically saved.",
-        image: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+        title: "Explore New Exercises",
+        bodyWidget: const Text.rich(
+          TextSpan(
+            style: TextStyle(fontSize: 18),
+            text:
+                "Not sure how to do an exercise? No problem!\n\n"
+                "Each exercise includes video links demonstrating the movements, along with form notes and target muscles.\n\n",
             children: [
-              Container(
-                width: width,
-                height: width * 1.5,
-                color: Colors.grey[300],
-                child: Center(
-                  child: Text(
-                    'Screenshot:\nExercise card with\ncheckboxes, weight,\nand skip button',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
+              TextSpan(text: "Tip:", style: TextStyle(fontWeight: FontWeight.bold)),
+              TextSpan(
+                text:
+                    " For Core, each side is intended as 1 rep (12 alternating crunches = 6 on each side), but feel free to challenge yourself and go for more!",
               ),
             ],
+          ),
+          textAlign: TextAlign.left,
+        ),
+        image: Center(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/3a_form_notes.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/3b_inline_video.png", width: width),
+              ],
+            ),
           ),
         ),
       ),
       PageViewModel(
         title: "Customize Your Experience",
-        body:
-            "Make this workout plan your own! Add custom exercises with notes and video links.\n\n"
-            "Set preferences to always or never include certain exercises, and adjust workout settings like exercise counts per session.\n\n"
-            "Remember: recovery is important. Pick and choose what works for you!",
-        image: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+        bodyWidget: const Text.rich(
+          TextSpan(
+            style: TextStyle(fontSize: 18),
             children: [
-              Container(
-                width: width,
-                height: width * 1.5,
-                color: Colors.grey[300],
-                child: Center(
-                  child: Text(
-                    'Screenshot:\nSettings screen with\ncustom exercises\nand preferences',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
+              TextSpan(
+                text:
+                    "Make this workout plan your own! Add your ✨ favorite exercises ✨ and set preferences to ",
+              ),
+              TextSpan(
+                text: "include",
+                style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+              ),
+              TextSpan(text: " or "),
+              TextSpan(
+                text: "exclude",
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+              TextSpan(
+                text:
+                    " certain movements.\n\n"
+                    "Adjust weight and reps, or skip and take recovery time as needed.\n\n"
+                    "Your workout, your rules, do what fits your goals!",
               ),
             ],
           ),
+          textAlign: TextAlign.left,
         ),
-      ),
-      PageViewModel(
-        title: "Log Other Activities",
-        body:
-            "Track cardio, sports, yoga, or any other activity!\n\n"
-            "Add custom activities with duration tracking.\n\n"
-            "Save your favorite activities for quick logging.",
         image: Center(
-          child: Container(
-            width: width,
-            height: width * 1.5,
-            color: Colors.grey[300],
-            child: Center(
-              child: Text(
-                'Screenshot:\nActivities tab showing\ncustom activities like\nRunning, Yoga, etc.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12),
-              ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/4a_workout_settings.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/4b_skip_progression.png", width: width),
+              ],
             ),
           ),
         ),
       ),
       PageViewModel(
-        title: "View Your History & Streaks",
-        body:
-            "See your workout calendar with color-coded markers for different workout types.\n\n"
-            "Track your streak and stay motivated!\n\n"
-            "Review detailed history for each workout type with expandable entries.",
+        title: "Log Other Activities",
+        bodyWidget: const Text(
+          "Track cardio ❤️, yoga 🧘, or any other activity!\n\n"
+          "Previous activities are stored for quick logging.",
+          textAlign: TextAlign.left,
+          style: TextStyle(fontSize: 18),
+        ),
         image: Center(
-          child: Container(
-            width: width,
-            height: width * 1.5,
-            color: Colors.grey[300],
-            child: Center(
-              child: Text(
-                'Screenshot:\nHistory tab with calendar,\nstreak widget,\nand workout history list',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12),
-              ),
+          child: Image.asset("assets/images/screenshots/5_actiities.png", width: width),
+        ),
+      ),
+      PageViewModel(
+        title: "View Your History & Streaks",
+        bodyWidget: const Text(
+          "See your workout history with color-coded markers for different workout types.\n\n"
+          "Watch your 🐼 grow stronger as you maintain your streak!\n\n"
+          "Monitor your progress over time with detailed history for each workout type.",
+          textAlign: TextAlign.left,
+          style: TextStyle(fontSize: 18),
+        ),
+        image: Center(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/6a_panda_weak.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/6b_panda_strong.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/6c_workout_history.png", width: width),
+              ],
             ),
           ),
         ),
       ),
       PageViewModel(
         title: "Export & Import Your Data",
-        body:
-            "Export all your workout data to Excel with organized sheets.\n\n"
-            "View your progress over time in easy-to-read tables.\n\n"
-            "Import data selectively when migrating to a new device — choose what to replace or merge!",
+        bodyWidget: const Text(
+          "Export all your workout data to Excel with organized sheets in order to view your progress over time in editable tables.\n\n"
+          "Migrating devices? You can selectively import workout history and preferences!",
+          textAlign: TextAlign.left,
+          style: TextStyle(fontSize: 18),
+        ),
         image: Center(
-          child: Container(
-            width: width,
-            height: width * 1.5,
-            color: Colors.grey[300],
-            child: Center(
-              child: Text(
-                'Screenshot:\nImport dialog with\ncheckboxes for\nworkout history and settings',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12),
-              ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/7a_import_export.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/7b_import_options.png", width: width),
+              ],
             ),
           ),
         ),
@@ -175,13 +191,34 @@ class OnboardingPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: IntroductionScreen(
-        dotsDecorator: DotsDecorator(activeColor: primaryColor),
+        dotsDecorator: DotsDecorator(
+          activeColor: primaryColor,
+          size: const Size(6.0, 6.0),
+          activeSize: const Size(8.0, 8.0),
+          spacing: const EdgeInsets.symmetric(horizontal: 3.0),
+        ),
+        controlsPadding: const EdgeInsets.symmetric(horizontal: 4.0),
+        bodyPadding: const EdgeInsets.symmetric(horizontal: 16.0),
         pages: getPages(context),
         onDone: onDone,
         showSkipButton: true,
-        skip: const Text("Skip"),
-        next: const Icon(Icons.arrow_forward),
-        done: const Text("Done", style: TextStyle(fontWeight: FontWeight.w600)),
+        showBackButton: true,
+        skip: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text("Skip", style: TextStyle(fontSize: 16)),
+        ),
+        back: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4.0),
+          child: Icon(Icons.arrow_back, size: 20),
+        ),
+        next: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4.0),
+          child: Icon(Icons.arrow_forward, size: 20),
+        ),
+        done: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text("Done", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+        ),
       ),
     );
   }

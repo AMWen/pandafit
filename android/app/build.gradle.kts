@@ -58,8 +58,3 @@ android {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    // Required for Android 15 edge-to-edge support
-    implementation("androidx.activity:activity-ktx:1.9.0")
-}

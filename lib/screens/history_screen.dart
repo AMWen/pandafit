@@ -517,7 +517,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                 headingRowHeight: 32,
                 dataRowMinHeight: 28,
                 dataRowMaxHeight: 35,
-                columnSpacing: 50,
+                columnSpacing: 45,
                 horizontalMargin: 0,
                 dividerThickness: 0,
                 columns: [
@@ -634,8 +634,8 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
               child: DataTable(
                 headingRowHeight: 32,
                 dataRowMinHeight: 28,
-                dataRowMaxHeight: 60,
-                columnSpacing: 30,
+                dataRowMaxHeight: 40,
+                columnSpacing: 35,
                 horizontalMargin: 0,
                 dividerThickness: 0,
                 columns: [
@@ -694,19 +694,23 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
   Widget _buildNotesCell(String notes) {
     if (notes.isEmpty) {
-      return Text('');
+      return SizedBox.shrink();
     }
+
+    // Count actual newlines to determine number of lines
+    final lineCount = '\n'.allMatches(notes).length + 1;
+    final maxLines = lineCount.clamp(1, 2);
 
     return Tooltip(
       message: notes,
       triggerMode: TooltipTriggerMode.tap,
-      child: Container(
+      child: ConstrainedBox(
         constraints: BoxConstraints(minWidth: 100, maxWidth: 200),
         child: Text(
           notes,
           style: TextStyle(fontSize: 13),
-          maxLines: 2,
           overflow: TextOverflow.ellipsis,
+          maxLines: maxLines,
         ),
       ),
     );

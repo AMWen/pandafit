@@ -59,6 +59,59 @@ class PandaStreakWidgetState extends State<PandaStreakWidget> {
     _loadStreak();
   }
 
+  void _showPandaInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Panda Progression', style: TextStyles.dialogTitle),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Keep your streak going to power up your panda!',
+                style: TextStyles.normalText,
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 16),
+              _buildPandaStageRow('assets/images/sad_baby_panda.png', 'Sad Baby Panda', '0 days'),
+              SizedBox(height: 12),
+              _buildPandaStageRow('assets/images/baby_panda.png', 'Baby Panda', '1-2 days'),
+              SizedBox(height: 12),
+              _buildPandaStageRow('assets/images/strong_panda.png', 'Strong Panda', '3-6 days'),
+              SizedBox(height: 12),
+              _buildPandaStageRow('assets/images/super_strong_panda.png', 'Super Strong Panda', '7+ days'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Got it!'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPandaStageRow(String imagePath, String title, String days) {
+    return Row(
+      children: [
+        Image.asset(imagePath, width: 60, height: 60),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Text(days, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -70,7 +123,10 @@ class PandaStreakWidgetState extends State<PandaStreakWidget> {
         children: [
           SizedBox(height: 16),
           Text("Let's start powering up your panda!", style: TextStyles.mediumText),
-          Image.asset('assets/images/sad_baby_panda.png', width: pandaWidth),
+          GestureDetector(
+            onTap: () => _showPandaInfoDialog(context),
+            child: Image.asset('assets/images/sad_baby_panda.png', width: pandaWidth),
+          ),
         ],
       );
     }
@@ -85,7 +141,10 @@ class PandaStreakWidgetState extends State<PandaStreakWidget> {
                 : 'Keep going! Extend your streak to ${_streak + 1} days!',
             style: TextStyles.mediumText,
           ),
-          Image.asset('assets/images/baby_panda.png', width: pandaWidth),
+          GestureDetector(
+            onTap: () => _showPandaInfoDialog(context),
+            child: Image.asset('assets/images/baby_panda.png', width: pandaWidth),
+          ),
         ],
       );
     }
@@ -100,7 +159,10 @@ class PandaStreakWidgetState extends State<PandaStreakWidget> {
                 : 'Keep going! Extend your streak to ${_streak + 1} days!',
             style: TextStyles.mediumText,
           ),
-          Image.asset('assets/images/strong_panda.png', width: pandaWidth),
+          GestureDetector(
+            onTap: () => _showPandaInfoDialog(context),
+            child: Image.asset('assets/images/strong_panda.png', width: pandaWidth),
+          ),
         ],
       );
     }
@@ -115,7 +177,10 @@ class PandaStreakWidgetState extends State<PandaStreakWidget> {
               : 'Keep the momentum! Extend your streak to ${_streak + 1} days!',
           style: TextStyles.mediumText,
         ),
-        Image.asset('assets/images/super_strong_panda.png', width: pandaWidth),
+        GestureDetector(
+          onTap: () => _showPandaInfoDialog(context),
+          child: Image.asset('assets/images/super_strong_panda.png', width: pandaWidth),
+        ),
       ],
     );
   }

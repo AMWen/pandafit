@@ -57,12 +57,13 @@ class OnboardingPage extends StatelessWidget {
             style: TextStyle(fontSize: 18),
             text:
                 "Not sure how to do an exercise? No problem!\n\n"
-                "Each exercise includes video links demonstrating the movements, along with form notes and target muscles.\n\n",
+                "Links to videos demonstrating the movements are included, along with form notes and target muscles.\n\n",
             children: [
               TextSpan(text: "Tip:", style: TextStyle(fontWeight: FontWeight.bold)),
               TextSpan(
                 text:
-                    " For Core, each side is intended as 1 rep (12 alternating crunches = 6 on each side), but feel free to challenge yourself and go for more!",
+                    " Core lets you catch up if you missed yesterday's workout.\n\n"
+                    "Each side counts as 1 rep (e.g., 12 side crunches = 6 per side). Feel free to challenge yourself and go for more, or adjust down as needed!",
               ),
             ],
           ),
@@ -152,7 +153,7 @@ class OnboardingPage extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset("assets/images/screenshots/6a_panda_weak.png", width: width),
+                Image.asset("assets/images/screenshots/6a_panda_progression.png", width: width),
                 SizedBox(width: spacing),
                 Image.asset("assets/images/screenshots/6b_panda_strong.png", width: width),
                 SizedBox(width: spacing),

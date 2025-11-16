@@ -307,25 +307,44 @@ class ExcelImportService {
 
       if (date == null || date.isEmpty || coreInfo == null || coreInfo.isEmpty) continue;
 
-      // Parse format: "3 sets x 4 exercises: Exercise1, Exercise2, ..."
+      // Parse format: "3 sets x 4 exercises: Exercise1(12), Exercise2(10), ..."
       final match = RegExp(r'(\d+)\s+sets\s+x\s+(\d+)\s+exercises:\s*(.+)').firstMatch(coreInfo);
       if (match != null) {
         final sets = int.tryParse(match.group(1)!);
         final exercisesPerSet = int.tryParse(match.group(2)!);
-        final exerciseNamesStr = match.group(3)!;
-        final exerciseNames = exerciseNamesStr.split(',').map((e) => e.trim()).toList();
+        final exercisesDetailsStr = match.group(3)!;
+        final exercisesDetails = exercisesDetailsStr.split(',').map((e) => e.trim()).toList();
 
         if (sets != null && exercisesPerSet != null) {
+          // Parse each exercise detail "30s Plank" or "12 Crunches"
+          final exercises = exercisesDetails.map((detail) {
+            // Match: number (optional 's') followed by name
+            final detailMatch = RegExp(r'^(\d+)(s?)\s+(.+)$').firstMatch(detail);
+            if (detailMatch != null) {
+              final amount = int.tryParse(detailMatch.group(1)!) ?? 0;
+              final isTimed = detailMatch.group(2) == 's';
+              final name = detailMatch.group(3)!.trim();
+              return {
+                'name': name,
+                'amount': amount,
+                'isTimed': isTimed,
+              };
+            } else {
+              // Fallback: treat as exercise name with 0 amount
+              return {
+                'name': detail.trim(),
+                'amount': 0,
+                'isTimed': false,
+              };
+            }
+          }).toList();
+
           // Create core workout data structure
           final coreWorkoutData = {
             'isCore': true,
             'sets': sets,
             'exercisesPerSet': exercisesPerSet,
-            'exercises': exerciseNames.map((name) => {
-              'name': name,
-              'amount': 0, // We don't store amounts in export, using 0 as placeholder
-              'isTimed': false,
-            }).toList(),
+            'exercises': exercises,
           };
 
           // Check if entry exists for this date
@@ -391,17 +410,20 @@ class ExcelImportService {
         final cellValue = cell.value?.toString();
 
         if (cellValue != null && cellValue.isNotEmpty) {
-          // Parse format: "45 min" or "45 min (notes here)"
-          final match = RegExp(r'(\d+)\s*min(?:\s*\(([^)]+)\))?').firstMatch(cellValue);
-          if (match != null) {
-            final duration = int.tryParse(match.group(1)!);
-            final notes = match.group(2);
+          // Parse format: "45 min" or "45 min: notes here"
+          final parts = cellValue.split(': ');
+          final durationPart = parts[0].trim();
+          final notesPart = parts.length > 1 ? parts.sublist(1).join(': ') : null;
+
+          final durationMatch = RegExp(r'(\d+)\s*min').firstMatch(durationPart);
+          if (durationMatch != null) {
+            final duration = int.tryParse(durationMatch.group(1)!);
 
             if (duration != null) {
               activities.add({
                 'name': activityNames[col],
                 'durationMinutes': duration,
-                'notes': notes,
+                'notes': notesPart,
               });
             }
           }

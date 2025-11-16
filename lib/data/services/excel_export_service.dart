@@ -223,9 +223,14 @@ class ExcelExportService {
           final exercisesPerSet = item['exercisesPerSet'] as int;
           final exercises = item['exercises'] as List;
 
-          // Format: "3 sets x 4 exercises: Exercise1, Exercise2, ..."
-          final exerciseNames = exercises.map((e) => e['name'] as String).join(', ');
-          coreByDate[dateStr] = '$sets sets x $exercisesPerSet exercises: $exerciseNames';
+          // Format: "3 sets x 4 exercises: 30s Plank, 12 Crunches, ..."
+          final exerciseDetails = exercises.map((e) {
+            final name = e['name'] as String;
+            final amount = e['amount'] as int? ?? 0;
+            final isTimed = e['isTimed'] as bool? ?? false;
+            return isTimed ? '${amount}s $name' : '$amount $name';
+          }).join(', ');
+          coreByDate[dateStr] = '$sets sets x $exercisesPerSet exercises: $exerciseDetails';
         }
       }
     }
@@ -317,7 +322,7 @@ class ExcelExportService {
         if (history != null) {
           final duration = '${history.durationMinutes} min';
           final notes = history.notes != null && history.notes!.isNotEmpty
-              ? ' (${history.notes})'
+              ? ': ${history.notes}'
               : '';
           final cellValue = duration + notes;
           sheet.cell(CellIndex.indexByColumnRow(columnIndex: colIdx + 1, rowIndex: rowIdx + 1))

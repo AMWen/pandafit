@@ -118,9 +118,9 @@ class OnboardingPage extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset("assets/images/screenshots/4a_workout_settings.png", width: width),
+                Image.asset("assets/images/screenshots/4a_skip_progression.png", width: width),
                 SizedBox(width: spacing),
-                Image.asset("assets/images/screenshots/4b_skip_progression.png", width: width),
+                Image.asset("assets/images/screenshots/4b_workout_settings.png", width: width),
               ],
             ),
           ),

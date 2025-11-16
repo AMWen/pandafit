@@ -347,7 +347,9 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         child: Column(
           children: [
             SizedBox(height: 16),
-            TableCalendar(
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28),
+              child: TableCalendar(
           firstDay: DateTime.utc(2025, 1, 1),
           lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: _focusedDay,
@@ -402,7 +404,8 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           onDaySelected: (selectedDay, focusedDay) {
             _showRoutineForDate(selectedDay);
           },
-        ),
+              ),
+            ),
           SizedBox(height: 16),
           // Legend for calendar colors
           _buildColorLegend(),

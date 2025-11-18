@@ -91,7 +91,9 @@ class OnboardingPage extends StatelessWidget {
             children: [
               TextSpan(
                 text:
-                    "Make this workout plan your own! Add your ✨ favorite exercises ✨ and set preferences to ",
+                    "Make this workout plan your own!\n\n"
+                    "Add your ✨ favorite exercises ✨, adjust weight and reps, or skip and take recovery time as needed.\n\n"
+                    "Update settings to always ",
               ),
               TextSpan(
                 text: "include",
@@ -104,8 +106,7 @@ class OnboardingPage extends StatelessWidget {
               ),
               TextSpan(
                 text:
-                    " certain movements.\n\n"
-                    "Adjust weight and reps, or skip and take recovery time as needed.\n\n"
+                    " certain exercises.\n\n"
                     "Your workout, your rules, do what fits your goals!",
               ),
             ],

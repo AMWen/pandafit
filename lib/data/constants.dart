@@ -50,8 +50,8 @@ class TextStyles {
   static const TextStyle primaryBoldHeading = TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor);
 }
 
-// Exercise Database - Easy to Extend!
-// To add new exercises: Just add to the appropriate list below
+// Exercise Database
+// Add new exercises to the appropriate list below
 class ExerciseDatabase {
   // Helper method to create exercises with auto-generated YouTube search links
   // Sets is always 3 for all exercises
@@ -62,6 +62,7 @@ class ExerciseDatabase {
     String reps = "8-12",
     String notes = "",
     double? beginnerWeight,
+    String? videoLink,
   }) {
     final searchQuery = name.replaceAll(' ', '+').toLowerCase();
     return Exercise(
@@ -69,7 +70,7 @@ class ExerciseDatabase {
       muscleGroup: muscleGroup,
       targetMuscles: targetMuscles,
       reps: reps,
-      videoLink: 'https://www.youtube.com/results?search_query=$searchQuery+dumbbell',
+      videoLink: videoLink ?? 'https://www.youtube.com/results?search_query=$searchQuery+dumbbell',
       notes: notes,
       weight: beginnerWeight,
     );
@@ -82,6 +83,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Upper Pecs", "Front Delts"],
       reps: "8-12",
+      videoLink: "https://youtu.be/Gruq177Psnk",
       notes: "Set bench to 30-45 degrees. Keep elbows at 45-degree angle from body. Press up and slightly inward at top. Retract shoulder blades throughout.",
       beginnerWeight: 15.0,
     ),
@@ -90,6 +92,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Mid Pecs", "Front Delts", "Triceps"],
       reps: "8-12",
+      videoLink: "https://youtu.be/WbCEvFA0NJs",
       notes: "Lower dumbbells until elbows are at 90 degrees or slightly below chest level. Keep shoulder blades retracted. Press straight up, don't let dumbbells drift over face.",
       beginnerWeight: 15.0,
     ),
@@ -98,6 +101,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Pecs"],
       reps: "10-15",
+      videoLink: "https://youtu.be/rk8YayRoTRQ",
       notes: "Keep slight bend in elbows (like hugging a tree). Lower until you feel a stretch in chest, don't go too deep. Focus on squeezing chest at top.",
       beginnerWeight: 10.0,
     ),
@@ -110,6 +114,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Mid Back", "Lats"],
       reps: "10-12",
+      videoLink: "https://youtu.be/tahGpBijHkY",
       notes: "Lie face down on incline bench. Pull elbows straight back past your torso. Squeeze shoulder blades together at top. Lead with elbows, not hands.",
       beginnerWeight: 15.0,
     ),
@@ -118,6 +123,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Lats", "Mid Back"],
       reps: "10-12",
+      videoLink: "https://youtu.be/yHqqGd0tXcw",
       notes: "Place knee and hand on bench. Keep back flat and parallel to floor. Pull weight toward hip, not straight up. Keep core tight. Control the descent.",
       beginnerWeight: 15.0,
     ),
@@ -126,6 +132,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Lats", "Pecs"],
       reps: "10-12",
+      videoLink: "https://youtu.be/raU5C9bWo9U",
       notes: "Lie flat on bench, feet on floor, shoulders pressed down. Hold dumbbell overhead with both hands. Lower weight back behind your head in an arc until you feel lat stretch. Keep slight bend in elbows. Pull back using lats, not arms.",
       beginnerWeight: 15.0,
     ),
@@ -138,6 +145,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Front Delts", "Side Delts"],
       reps: "8-12",
+      videoLink: "https://youtu.be/k6tzKisR3NY",
       notes: "Start with dumbbells at shoulder height. Press straight up, rotating slightly inward at top. Keep core tight, avoid arching lower back. Lower with control.",
       beginnerWeight: 15.0,
     ),
@@ -146,6 +154,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Side Delts"],
       reps: "12-15",
+      videoLink: "https://youtu.be/lMYs7FY8os4",
       notes: "Keep slight bend in elbows. Raise arms out to sides until parallel to floor. Lead with elbows, pour pinky slightly upward at top. Control descent, don't let weights drop.",
       beginnerWeight: 10.0,
     ),
@@ -154,6 +163,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Side Delts"],
       reps: "12-15",
+      videoLink: "https://youtu.be/p8eMhRdeX4g",
       notes: "Hold onto sturdy support with one hand. Lean away at angle. Raise dumbbell to side, emphasizing the stretch at bottom. Increases range of motion vs standard lateral raise.",
       beginnerWeight: 10.0,
     ),
@@ -162,6 +172,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Rear Delts", "Upper Back"],
       reps: "12-15",
+      videoLink: "https://youtu.be/LsT-bR_zxLo",
       notes: "Hinge at hips until torso is near parallel to floor. Keep back flat, slight knee bend. Raise dumbbells out to sides, squeeze shoulder blades. Keep slight elbow bend throughout.",
       beginnerWeight: 10.0,
     ),
@@ -174,6 +185,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Biceps Long Head", "Brachialis"],
       reps: "10-12",
+      videoLink: "https://youtu.be/fXFN8_1Bh6k",
       notes: "Set bench to 45-60 degrees (higher angle = easier). Let arms hang straight down with full stretch. Curl up while keeping elbows stationary. Squeeze at top, control the descent. Don't swing.",
       beginnerWeight: 10.0,
     ),
@@ -182,6 +194,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Biceps Short Head", "Brachialis"],
       reps: "10-12",
+      videoLink: "https://youtu.be/Mg0NnlF5NZQ",
       notes: "Rest upper arms on pad, keep armpits tight to top of pad. Curl up while keeping upper arms pressed down. Go to full extension at bottom. Control the negative phase.",
       beginnerWeight: 10.0,
     ),
@@ -190,6 +203,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Brachialis", "Biceps", "Forearms"],
       reps: "10-12",
+      videoLink: "https://youtu.be/vm0zV_WQerE",
       notes: "Hold dumbbells with palms facing each other (neutral grip). Keep elbows tight to sides. Curl straight up without rotating wrists. Squeeze at top, control descent.",
       beginnerWeight: 10.0,
     ),
@@ -198,6 +212,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Triceps Long Head"],
       reps: "10-12",
+      videoLink: "https://youtu.be/b_r_LW4HEcM",
       notes: "Hold dumbbell overhead with both hands. Keep elbows pointed straight up and close to head. Lower behind head until you feel tricep stretch. Extend back up without moving elbows.",
       beginnerWeight: 10.0,
     ),
@@ -206,6 +221,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.upperBody,
       targetMuscles: ["Triceps"],
       reps: "12-15",
+      videoLink: "https://youtu.be/GZ3NzlJs_yg",
       notes: "Hinge at hips, keep back flat. Pin upper arm parallel to floor. Extend elbow fully until arm is straight, squeeze tricep hard. Only forearm should move.",
       beginnerWeight: 10.0,
     ),
@@ -218,6 +234,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Glutes", "Hamstrings"],
       reps: "10-12",
+      videoLink: "https://youtu.be/or1frhkjBDc",
       notes: "Place back foot on bench. Take longer step forward (wider stance). Keep torso upright. Descend until back knee nearly touches ground. Drive through front heel. Emphasizes glutes more than quads.",
       beginnerWeight: 20.0,
     ),
@@ -226,6 +243,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
       reps: "10-12",
+      videoLink: "https://youtu.be/tdOk9XkzGVc",
       notes: "Place back foot on bench. Take shorter step forward (narrower stance). Allow front knee to travel forward over toes. Keep torso more upright. Targets quads more than glutes.",
       beginnerWeight: 20.0,
     ),
@@ -234,6 +252,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Hamstrings", "Glutes"],
       reps: "10-12",
+      videoLink: "https://youtu.be/dN_-PRqrQkA",
       notes: "Hold dumbbells at thighs. Hinge at hips by pushing butt back. Keep back flat, slight knee bend. Lower until you feel hamstring stretch (mid-shin). Squeeze glutes to return. Don't round back.",
       beginnerWeight: 20.0,
     ),
@@ -242,6 +261,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads", "Glutes"],
       reps: "10-15",
+      videoLink: "https://youtu.be/lRYBbchqxtI",
       notes: "Hold dumbbell vertically at chest (like a goblet). Squat down keeping chest up. Push knees out, elbows go between knees. Go deep (below parallel if possible). Drive through heels.",
       beginnerWeight: 20.0,
     ),
@@ -250,7 +270,8 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
       reps: "8-10",
-      notes: "Kneel on pad, secure feet. Keep body straight from knees to shoulders. Lean back slowly under control. Go as far as comfortable. Return using quads. Very challenging - use assistance if needed.",
+      videoLink: "https://youtu.be/GtBxjoLlHyA",
+      notes: "Kneel on pad, secure feet. Keep body straight from knees to shoulders. Lean back slowly under control. Go as far as comfortable. Return using quads. Very challenging, use assistance if needed.",
       beginnerWeight: 0.0,
     ),
     createExercise(
@@ -258,7 +279,8 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads"],
       reps: "8-10",
-      notes: "Hold onto stable support. Rise on toes, push knees forward. Lean back while bending knees. Keep hips extended, body in straight line. Advanced exercise - start with partial range if needed.",
+      videoLink: "https://youtu.be/z1IcOHr8Ff8",
+      notes: "Hold onto stable support. Rise on toes, push knees forward. Lean back while bending knees. Keep hips extended, body in straight line. Advanced exercise, start with partial range if needed.",
       beginnerWeight: 0.0,
     ),
     createExercise(
@@ -266,6 +288,7 @@ class ExerciseDatabase {
       muscleGroup: MuscleGroup.lowerBody,
       targetMuscles: ["Quads", "Glutes"],
       reps: "10-12",
+      videoLink: "https://youtu.be/mJilHWIBWO8",
       notes: "Hold dumbbells at sides. Step forward with one leg. Lower back knee toward ground (don't slam). Keep torso upright, front knee over ankle. Push through front heel to return. Alternate legs.",
       beginnerWeight: 20.0,
     ),

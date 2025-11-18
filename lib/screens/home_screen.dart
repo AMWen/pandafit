@@ -39,6 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isActivityFormActive = false;
   final GlobalKey _activityFormKey = GlobalKey();
   String? _currentCoreVideoUrl; // Track currently playing core video
+  String? _currentExerciseVideoUrl; // Track currently playing exercise video
+  String? _currentExerciseVideoName; // Track which exercise's video is playing
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _exerciseKeys = {}; // Keys for scrolling to exercises
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
   ActivityRoutine? completedActivitiesToday;
@@ -50,7 +54,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<MuscleGroup, List<Exercise>> completedWorkoutsToday = {}; // Track completed workouts with exercises
   Map<MuscleGroup, WorkoutRoutine> cachedWorkouts = {}; // Cache in-progress workouts by muscle group
   bool _showAddExerciseCard = false; // Track if add exercise card is visible
-  final ScrollController _scrollController = ScrollController();
 
   late PageController _pageController;
   int _currentIndex = 0;
@@ -558,17 +561,38 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Launch URL externally (for upper/lower body YouTube search links)
-  Future<void> _launchUrlExternal(String url) async {
+  /// Launch URL externally (for search links) or inline (for direct video links)
+  Future<void> _launchUrlExternal(String url, String exerciseName) async {
     if (url.isEmpty) {
       _showSnackbar('No video link available');
       return;
     }
 
-    final Uri parsedUrl = Uri.parse(url);
+    // If URL contains "results", it's a search link - open externally
+    if (url.contains('results')) {
+      final Uri parsedUrl = Uri.parse(url);
+      if (!await launchUrl(parsedUrl, mode: LaunchMode.externalApplication)) {
+        _showSnackbar('Could not open video link');
+      }
+    } else {
+      // Direct video link - play inline
+      setState(() {
+        _currentExerciseVideoUrl = url;
+        _currentExerciseVideoName = exerciseName;
+      });
 
-    if (!await launchUrl(parsedUrl, mode: LaunchMode.externalApplication)) {
-      _showSnackbar('Could not open video link');
+      // Scroll to the exercise after a brief delay to let the video render
+      Future.delayed(Duration(milliseconds: 100), () {
+        final key = _exerciseKeys[exerciseName];
+        if (key?.currentContext != null) {
+          Scrollable.ensureVisible(
+            key!.currentContext!,
+            duration: Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            alignment: 0.0, // Scroll to top of viewport
+          );
+        }
+      });
     }
   }
 
@@ -621,7 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return ExerciseCard(
                   exercise: exercise,
                   onUpdate: (_) {}, // Read-only, no updates allowed
-                  onLaunchVideo: () => _launchUrlExternal(exercise.videoLink),
+                  onLaunchVideo: () => _launchUrlExternal(exercise.videoLink, exercise.name),
                   isReadOnly: true,
                 );
               },
@@ -653,12 +677,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Use updated exercise if available
                 final displayExercise = exerciseUpdates[exercise.name] ?? exercise;
 
-                return ExerciseCard(
-                  exercise: displayExercise,
-                  onUpdate: _updateExercise,
-                  onLaunchVideo: () => _launchUrlExternal(exercise.videoLink),
-                  onSkip: () => _skipExercise(displayExercise),
-                  onRestore: () => _restoreExercise(displayExercise),
+                // Create or retrieve key for this exercise
+                _exerciseKeys.putIfAbsent(exercise.name, () => GlobalKey());
+
+                return Container(
+                  key: _exerciseKeys[exercise.name],
+                  child: Column(
+                    children: [
+                      // Show inline video player above this exercise if it's the current video
+                      if (_currentExerciseVideoName == exercise.name && _currentExerciseVideoUrl != null) ...[
+                        InlineYouTubePlayer(
+                          key: ValueKey(_currentExerciseVideoUrl),
+                          videoUrl: _currentExerciseVideoUrl!,
+                          onClose: () {
+                            setState(() {
+                              _currentExerciseVideoUrl = null;
+                              _currentExerciseVideoName = null;
+                            });
+                          },
+                        ),
+                        SizedBox(height: 16),
+                      ],
+                      ExerciseCard(
+                        exercise: displayExercise,
+                        onUpdate: _updateExercise,
+                        onLaunchVideo: () => _launchUrlExternal(exercise.videoLink, exercise.name),
+                        onSkip: () => _skipExercise(displayExercise),
+                        onRestore: () => _restoreExercise(displayExercise),
+                      ),
+                    ],
+                  ),
                 );
               }
 

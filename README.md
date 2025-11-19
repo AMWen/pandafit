@@ -24,21 +24,17 @@ This app lets you generate personalized workouts for different muscle groups eac
   - **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 8 sheets (Upper Body, Lower Body, Core, Activities history, plus settings and preferences)
   - **Selective data import**: Import dialog lets you choose which data to import (workout history, settings, custom exercises, etc.) with replace or merge options
 - **Yesterday's catchup**: Core workouts allow completing yesterday's missed workout
-- **Video links**: Each exercise includes a YouTube video link for proper form demonstration
-  - Upper/Lower body: Opens YouTube search results in external browser/app
-  - Core exercises: Watch videos in-app with Picture-in-Picture support
+- **Video links**: Each exercise includes an in-app YouTube video link for proper form demonstration
 
 ## Screenshots
 <div style="text-align: left;">
-  <img src="assets/screenshots/1_primary_screen.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/2_refresh.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/3_checkmark.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/4_timer.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/5_workout_history.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/6_workout_history_completed.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/7_workout_beast.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/8_daily_history.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
-  <img src="assets/screenshots/9_export.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/1_welcome.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/2_generated_workouts.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/3_videos.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/4_customization.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/5_other_activities.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/6_history_new.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
+  <img src="assets/screenshots/7_import_export.png" width="150px" style="display: inline-block; margin-right: 4px;"/>
 </div>
 
 ## Getting Started
@@ -82,17 +78,20 @@ For iOS (need to create an an iOS Development Certificate in Apple Developer acc
 flutter build ios --release
 ```
 
-## Picture-in-Picture Video Support (Core Exercises)
+## Video Support
 
-Watch core exercise form videos while following your workout! When you tap on a core exercise to watch its video:
+Watch exercise form videos while following your workout!
 
-- The video opens in an integrated YouTube player
-- **On Android**: Press the home button or switch apps to activate PiP mode - the video continues playing in a small floating window
-- **On iOS**: PiP support varies by device and iOS version
-- Use the floating window to watch form demonstrations while performing exercises
-- Tap the info icon in the video player for PiP instructions
+### Inline Video Player (Direct Links)
+For exercises with direct video links:
+- **Upper & Lower Body**: Video player appears inline above the exercise card, auto-scrolling to show the video at the top
+- **Core Exercises**: Video opens in an integrated YouTube player with Picture-in-Picture support
+  - **On Android**: Press the home button or switch apps to activate PiP mode - the video continues playing in a small floating window
+  - **On iOS**: PiP support varies by device and iOS version
+  - Tap the info icon in the video player for PiP instructions
 
-This feature is available for **core exercises only** (which have direct video links). Upper and lower body exercises open YouTube search results in your external browser/app, allowing you to browse multiple form videos.
+### YouTube Search Links
+Exercises without direct video links open YouTube search results in your external browser/app, allowing you to browse multiple form videos for the exercise.
 
 ## Workout Types
 

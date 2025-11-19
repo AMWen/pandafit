@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentExerciseVideoUrl; // Track currently playing exercise video
   String? _currentExerciseVideoName; // Track which exercise's video is playing
   final ScrollController _scrollController = ScrollController();
-  final Map<String, GlobalKey> _exerciseKeys = {}; // Keys for scrolling to exercises
+  final Map<String, GlobalKey> _exerciseKeys = {}; // Keys for exercises
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
   ActivityRoutine? completedActivitiesToday;
@@ -582,8 +582,9 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       // Scroll to the exercise after a brief delay to let the video render
-      Future.delayed(Duration(milliseconds: 100), () {
-        final key = _exerciseKeys[exerciseName];
+      Future.delayed(Duration(milliseconds: 300), () {
+        final exerciseKeyId = '${selectedTarget?.toString()}_$exerciseName';
+        final key = _exerciseKeys[exerciseKeyId];
         if (key?.currentContext != null) {
           Scrollable.ensureVisible(
             key!.currentContext!,
@@ -613,18 +614,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
-  Widget _buildWorkoutView() {
+  Widget _buildWorkoutView(MuscleGroup target) {
     // Check if selected target has been completed
-    if (selectedTarget != null && completedWorkoutsToday.containsKey(selectedTarget!)) {
-      final completedExercises = completedWorkoutsToday[selectedTarget!]!;
-      final targetName = muscleGroupToString(selectedTarget!);
+    if (completedWorkoutsToday.containsKey(target)) {
+      final completedExercises = completedWorkoutsToday[target]!;
+      final targetName = muscleGroupToString(target);
 
       return Column(
         children: [
           // Completion message
           buildCompletionMessage(
             title: '$targetName completed!',
-            onUndo: () => _undoCompletion(selectedTarget!),
+            onUndo: () => _undoCompletion(target),
           ),
 
           // Completed workout exercises
@@ -655,8 +656,10 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Show current workout in progress
-    if (currentWorkout == null) {
+    // Show current workout in progress - get the appropriate workout for this target
+    final WorkoutRoutine? workout = selectedTarget == target ? currentWorkout : cachedWorkouts[target];
+
+    if (workout == null) {
       return Center(
         child: CircularProgressIndicator(),
       );
@@ -669,19 +672,24 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.builder(
             controller: _scrollController,
             padding: EdgeInsets.only(top: 8),
-            itemCount: currentWorkout!.exercises.length + 1, // +1 for add button/card at end
+            itemCount: workout.exercises.length + 1, // +1 for add button/card at end
             itemBuilder: (context, index) {
               // Show exercises first
-              if (index < currentWorkout!.exercises.length) {
-                final exercise = currentWorkout!.exercises[index];
+              if (index < workout.exercises.length) {
+                final exercise = workout.exercises[index];
                 // Use updated exercise if available
                 final displayExercise = exerciseUpdates[exercise.name] ?? exercise;
 
-                // Create or retrieve key for this exercise
-                _exerciseKeys.putIfAbsent(exercise.name, () => GlobalKey());
+                // Create GlobalKey for scrolling with page-specific prefix to avoid duplicates during transitions
+                // Use the target parameter (not selectedTarget state) to ensure stable keys during transitions
+                final exerciseKeyId = '${target.toString()}_${exercise.name}';
+                final exerciseKey = _exerciseKeys.putIfAbsent(
+                  exerciseKeyId,
+                  () => GlobalKey(),
+                );
 
                 return Container(
-                  key: _exerciseKeys[exercise.name],
+                  key: exerciseKey,
                   child: Column(
                     children: [
                       // Show inline video player above this exercise if it's the current video
@@ -711,37 +719,42 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               // Show either + button or add exercise card at the end
-              if (_showAddExerciseCard) {
+              if (_showAddExerciseCard && selectedTarget == target) {
                 return AddExerciseCard(
-                  muscleGroup: selectedTarget!,
-                  currentExercises: currentWorkout!.exercises,
+                  muscleGroup: target,
+                  currentExercises: workout.exercises,
                   onAdd: (exercise) {
                     setState(() {
-                      if (currentWorkout != null) {
-                        // Check if exercise already exists
-                        final isDuplicate = currentWorkout!.exercises.any((e) => e.name == exercise.name);
+                      // Check if exercise already exists
+                      final isDuplicate = workout.exercises.any((e) => e.name == exercise.name);
 
-                        if (isDuplicate) {
-                          _showSnackbar('Exercise already in workout');
-                          return;
-                        }
-
-                        // Add exercise to current workout
-                        currentWorkout = WorkoutRoutine(
-                          targetArea: currentWorkout!.targetArea,
-                          exercises: [...currentWorkout!.exercises, exercise],
-                        );
-                        // Initialize tracking for new exercise
-                        exerciseUpdates[exercise.name] = exercise;
-
-                        // Save incomplete workout to database
-                        LocalDB.saveIncompleteWorkout(currentWorkout!);
-
-                        _showSnackbar('Exercise added to workout');
-
-                        // Hide the add card after adding
-                        _showAddExerciseCard = false;
+                      if (isDuplicate) {
+                        _showSnackbar('Exercise already in workout');
+                        return;
                       }
+
+                      // Add exercise to cached workout
+                      final updatedWorkout = WorkoutRoutine(
+                        targetArea: workout.targetArea,
+                        exercises: [...workout.exercises, exercise],
+                      );
+                      cachedWorkouts[target] = updatedWorkout;
+
+                      // Update current workout if this is the selected target
+                      if (selectedTarget == target) {
+                        currentWorkout = updatedWorkout;
+                      }
+
+                      // Initialize tracking for new exercise
+                      exerciseUpdates[exercise.name] = exercise;
+
+                      // Save incomplete workout to database
+                      LocalDB.saveIncompleteWorkout(updatedWorkout);
+
+                      _showSnackbar('Exercise added to workout');
+
+                      // Hide the add card after adding
+                      _showAddExerciseCard = false;
                     });
                   },
                   onCancel: () {
@@ -782,12 +795,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         // Complete Workout button (hide when add exercise card is visible)
-        if (!_showAddExerciseCard)
+        if (!_showAddExerciseCard && selectedTarget == target)
           Padding(
             padding: EdgeInsets.all(16),
             child: Center(
               child: ElevatedButton(
-                onPressed: _completeWorkout,
+                onPressed: () => _completeWorkout(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -1100,13 +1113,25 @@ class _HomeScreenState extends State<HomeScreen> {
         onPageChanged: _onPageChanged,
         children: [
           // Upper Body Tab
-          _buildWorkoutPage(muscleGroupToString(MuscleGroup.upperBody)),
+          KeyedSubtree(
+            key: ValueKey('upper_body_page'),
+            child: _buildWorkoutPage(muscleGroupToString(MuscleGroup.upperBody), MuscleGroup.upperBody),
+          ),
           // Lower Body Tab
-          _buildWorkoutPage(muscleGroupToString(MuscleGroup.lowerBody)),
+          KeyedSubtree(
+            key: ValueKey('lower_body_page'),
+            child: _buildWorkoutPage(muscleGroupToString(MuscleGroup.lowerBody), MuscleGroup.lowerBody),
+          ),
           // Core Tab
-          _buildCoreWorkoutPage(),
+          KeyedSubtree(
+            key: ValueKey('core_page'),
+            child: _buildCoreWorkoutPage(),
+          ),
           // Other Activities Tab
-          _buildActivityPage(),
+          KeyedSubtree(
+            key: ValueKey('activities_page'),
+            child: _buildActivityPage(),
+          ),
           // History Tab
           HistoryScreen(
             key: _historyKey,
@@ -1155,11 +1180,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildWorkoutPage(String title) {
+  Widget _buildWorkoutPage(String title, MuscleGroup target) {
     return _WorkoutPageWidget(
       title: title,
       isLoading: isLoading,
-      workoutView: _buildWorkoutView(),
+      workoutView: _buildWorkoutView(target),
       onOpenSettings: () async {
         await Navigator.push(
           context,

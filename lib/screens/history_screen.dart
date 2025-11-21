@@ -10,6 +10,7 @@ import '../data/services/localdb_service.dart';
 import '../data/services/excel_export_service.dart';
 import '../data/services/excel_import_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
+import '../data/widgets/attachment_viewer.dart';
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback? onDataImported;
@@ -26,7 +27,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   late TabController _tabController;
   Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
   Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
-  Map<String, List<ActivityHistory>> _activitiesHistory = {};
+  Map<String, List<Activity>> _activitiesHistory = {}; // Changed to Activity to include attachments
   bool _isLoadingProgress = false;
   final Set<String> _expandedExercises = {}; // Track which exercises show full history
   static const int _defaultHistoryLimit = 10;
@@ -154,7 +155,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
 
     Map<String, List<ExerciseHistory>> upperHistory = {};
     Map<String, List<ExerciseHistory>> lowerHistory = {};
-    Map<String, List<ActivityHistory>> activitiesHistory = {};
+    Map<String, List<Activity>> activitiesHistory = {}; // Changed to Activity
 
     for (var log in logs) {
       final dateStr = log['date'] as String;
@@ -180,17 +181,20 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         }
       }
 
-      // Load activities
+      // Load activities (store full Activity object to preserve attachments)
       for (var item in exercisesJson) {
         if (item is Map && item['isActivity'] == true) {
           final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
           for (var activity in activities) {
-            final entry = ActivityHistory(
-              date: dateStr,
+            // Add date to activity for display purposes
+            final activityWithDate = Activity(
+              name: activity.name,
               durationMinutes: activity.durationMinutes,
               notes: activity.notes,
+              date: DateTime.parse(dateStr),
+              attachments: activity.attachments,
             );
-            activitiesHistory.putIfAbsent(activity.name, () => []).add(entry);
+            activitiesHistory.putIfAbsent(activity.name, () => []).add(activityWithDate);
           }
         }
       }
@@ -575,7 +579,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     );
   }
 
-  Widget _buildActivitiesList(Map<String, List<ActivityHistory>> historyMap) {
+  Widget _buildActivitiesList(Map<String, List<Activity>> historyMap) {
     if (_isLoadingProgress) {
       return Center(child: CircularProgressIndicator());
     }
@@ -596,9 +600,34 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
       onRefresh: _loadProgressData,
       child: ListView.builder(
         padding: EdgeInsets.all(16),
-        itemCount: activityNames.length,
+        itemCount: activityNames.length + 1, // +1 for info message
         itemBuilder: (context, index) {
-          final activityName = activityNames[index];
+          // Show info message as first item
+          if (index == 0) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 14, color: Colors.grey[600]),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'May need to scroll to right to see attachments • Tap notes to expand',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Show activity cards
+          final activityIndex = index - 1;
+          final activityName = activityNames[activityIndex];
           final history = historyMap[activityName]!;
           return _buildActivityCard(activityName, history);
         },
@@ -606,10 +635,10 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     );
   }
 
-  Widget _buildActivityCard(String activityName, List<ActivityHistory> history) {
+  Widget _buildActivityCard(String activityName, List<Activity> history) {
     // Sort by date (most recent first)
-    final sortedHistory = List<ActivityHistory>.from(history)
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final sortedHistory = List<Activity>.from(history)
+      ..sort((a, b) => (b.date ?? DateTime.now()).compareTo(a.date ?? DateTime.now()));
 
     // Check if this activity is expanded
     final isExpanded = _expandedExercises.contains(activityName);
@@ -632,6 +661,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
               activityName,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
@@ -644,18 +674,25 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                 columns: [
                   DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Duration', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('Notes (👆 to expand)', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Notes', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Attachments', style: TextStyle(fontWeight: FontWeight.bold))),
                 ],
-                rows: displayedHistory.map((record) {
-                  final dateStr = _formatDate(record.date);
-                  final durationStr = '${record.durationMinutes} min';
-                  final notesStr = record.notes ?? '';
+                rows: displayedHistory.map((activity) {
+                  final dateStr = _formatDate(activity.date?.toIso8601String() ?? '');
+                  final durationStr = '${activity.durationMinutes} min';
+                  final notesStr = activity.notes ?? '';
+                  final hasAttachments = activity.attachments != null && activity.attachments!.isNotEmpty;
 
                   return DataRow(cells: [
                     DataCell(Text(dateStr)),
                     DataCell(Text(durationStr)),
                     DataCell(
                       _buildNotesCell(notesStr),
+                    ),
+                    DataCell(
+                      hasAttachments
+                          ? _buildAttachmentsCell(activity)
+                          : SizedBox.shrink(),
                     ),
                   ]);
                 }).toList(),
@@ -695,6 +732,62 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     );
   }
 
+  Widget _buildAttachmentsCell(Activity activity) {
+    if (activity.attachments == null || activity.attachments!.isEmpty) {
+      return SizedBox.shrink();
+    }
+
+    final attachmentCount = activity.attachments!.length;
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AttachmentViewer(
+              attachments: activity.attachments!,
+              activityName: activity.name,
+            ),
+          ),
+        );
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Show first thumbnail
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.memory(
+                base64Decode(activity.attachments!.first.thumbnailBase64),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          if (attachmentCount > 1) ...[
+            SizedBox(width: 4),
+            Text(
+              '+${attachmentCount - 1}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: primaryColor,
+              ),
+            ),
+          ],
+          SizedBox(width: 4),
+          Icon(Icons.open_in_new, size: 14, color: Colors.grey[600]),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotesCell(String notes) {
     if (notes.isEmpty) {
       return SizedBox.shrink();
@@ -708,7 +801,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
       message: notes,
       triggerMode: TooltipTriggerMode.tap,
       child: ConstrainedBox(
-        constraints: BoxConstraints(minWidth: 100, maxWidth: 200),
+        constraints: BoxConstraints(maxWidth: 120),
         child: Text(
           notes,
           style: TextStyle(fontSize: 13),

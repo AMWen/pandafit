@@ -10,16 +10,3 @@ class ExerciseHistory {
     required this.completedSets,
   });
 }
-
-/// Helper class to store activity history
-class ActivityHistory {
-  final String date;
-  final int durationMinutes;
-  final String? notes;
-
-  ActivityHistory({
-    required this.date,
-    required this.durationMinutes,
-    this.notes,
-  });
-}

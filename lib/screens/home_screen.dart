@@ -6,10 +6,12 @@ import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
 import '../data/models/activity_model.dart';
+import '../data/models/activity_attachment.dart';
 import '../data/services/localdb_service.dart';
 import '../data/services/workout_generator.dart';
 import '../data/services/core_workout_generator.dart';
 import '../data/services/activity_preferences_service.dart';
+import '../data/services/attachment_service.dart';
 import '../data/widgets/exercise_card_widget.dart';
 import '../data/widgets/core_workout_card_widget.dart';
 import '../data/widgets/activity_card_widget.dart';
@@ -488,6 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
         currentActivities[index] = activity.copyWith(
           durationMinutes: result['duration'] as int,
           notes: (result['notes'] as String).isEmpty ? null : result['notes'] as String,
+          attachments: result['attachments'] as List<ActivityAttachment>?,
         );
       });
 
@@ -1255,12 +1258,14 @@ class _EditActivityDialog extends StatefulWidget {
 class _EditActivityDialogState extends State<_EditActivityDialog> {
   late final TextEditingController _durationController;
   late final TextEditingController _notesController;
+  late final List<ActivityAttachment> _attachments;
 
   @override
   void initState() {
     super.initState();
     _durationController = TextEditingController(text: widget.activity.durationMinutes.toString());
     _notesController = TextEditingController(text: widget.activity.notes ?? '');
+    _attachments = List.from(widget.activity.attachments ?? []);
   }
 
   @override
@@ -1270,12 +1275,39 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
     super.dispose();
   }
 
+  Future<void> _pickAttachment() async {
+    try {
+      final attachment = await AttachmentService.pickAttachment();
+      if (attachment != null) {
+        setState(() {
+          _attachments.add(attachment);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding attachment: $e'),
+            backgroundColor: Colors.red[700],
+          ),
+        );
+      }
+    }
+  }
+
+  void _removeAttachment(int index) {
+    setState(() {
+      _attachments.removeAt(index);
+    });
+  }
+
   void _save(BuildContext context) {
     final duration = int.tryParse(_durationController.text);
     if (duration != null && duration > 0) {
       Navigator.pop(context, {
         'duration': duration,
         'notes': _notesController.text.trim(),
+        'attachments': _attachments.isNotEmpty ? _attachments : null,
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1313,6 +1345,91 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
               ),
               maxLines: 3,
             ),
+            SizedBox(height: 16),
+            // Attachments section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Attachments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                OutlinedButton.icon(
+                  onPressed: _pickAttachment,
+                  icon: Icon(Icons.attach_file, size: 18),
+                  label: Text('Add File'),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+              ],
+            ),
+            if (_attachments.isNotEmpty) ...[
+              SizedBox(height: 8),
+              ...List.generate(_attachments.length, (index) {
+                final attachment = _attachments[index];
+                return Container(
+                  margin: EdgeInsets.only(bottom: 8),
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      // Thumbnail
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          color: Colors.white,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.memory(
+                            base64Decode(attachment.thumbnailBase64),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      // File info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              attachment.fileName,
+                              style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              '${AttachmentService.formatFileSize(attachment.originalSizeBytes)}${!attachment.isFullFileInExcel ? ' (thumbnail only)' : ''}',
+                              style: TextStyle(
+                                color: primaryColor.withValues(alpha: 0.7),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Remove button
+                      IconButton(
+                        icon: Icon(Icons.close, size: 18, color: Colors.red[400]),
+                        onPressed: () => _removeAttachment(index),
+                        padding: EdgeInsets.all(4),
+                        constraints: BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
           ],
         ),
       ),

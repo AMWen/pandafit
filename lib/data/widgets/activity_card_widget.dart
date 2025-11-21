@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
 
 import '../constants.dart';
 import '../models/activity_model.dart';
+import '../models/activity_attachment.dart';
 import '../services/activity_preferences_service.dart';
+import '../services/attachment_service.dart';
+import 'attachment_viewer.dart';
 
 class ActivityCard extends StatelessWidget {
   final Activity activity;
@@ -18,6 +22,20 @@ class ActivityCard extends StatelessWidget {
     this.onEdit,
     this.isReadOnly = false,
   });
+
+  void _viewAttachments(BuildContext context) {
+    if (activity.attachments != null && activity.attachments!.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AttachmentViewer(
+            attachments: activity.attachments!,
+            activityName: activity.name,
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +73,35 @@ class ActivityCard extends StatelessWidget {
                       style: TextStyle(
                         color: secondaryColor.withValues(alpha: 0.6),
                         fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  // Attachments indicator
+                  if (activity.attachments != null && activity.attachments!.isNotEmpty) ...[
+                    SizedBox(height: 8),
+                    InkWell(
+                      onTap: () => _viewAttachments(context),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.attach_file, size: 14, color: secondaryColor.withValues(alpha: 0.7)),
+                            SizedBox(width: 4),
+                            Text(
+                              '${activity.attachments!.length} attachment${activity.attachments!.length > 1 ? 's' : ''}',
+                              style: TextStyle(
+                                color: secondaryColor.withValues(alpha: 0.7),
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(Icons.open_in_new, size: 12, color: secondaryColor.withValues(alpha: 0.6)),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -110,6 +157,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
   final _notesFocusNode = FocusNode();
   FocusNode? _autocompleteFocusNode;
   TextEditingController? _autocompleteController;
+  final List<ActivityAttachment> _attachments = [];
 
   @override
   void initState() {
@@ -138,12 +186,39 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
     widget.onFormChanged?.call(hasFocus);
   }
 
+  Future<void> _pickAttachment() async {
+    try {
+      final attachment = await AttachmentService.pickAttachment();
+      if (attachment != null) {
+        setState(() {
+          _attachments.add(attachment);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding attachment: $e'),
+            backgroundColor: Colors.red[700],
+          ),
+        );
+      }
+    }
+  }
+
+  void _removeAttachment(int index) {
+    setState(() {
+      _attachments.removeAt(index);
+    });
+  }
+
   void submitActivity() {
     if (_formKey.currentState!.validate()) {
       final activity = Activity(
         name: _nameController.text.trim(),
         durationMinutes: int.parse(_durationController.text),
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        attachments: _attachments.isNotEmpty ? List.from(_attachments) : null,
       );
 
       widget.onAdd(activity);
@@ -153,6 +228,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
       _autocompleteController?.clear();
       _durationController.clear();
       _notesController.clear();
+      _attachments.clear();
     }
   }
 
@@ -297,6 +373,103 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                   ),
                 ),
               ),
+
+              SizedBox(height: 16),
+
+              // Attachments section
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Attachments',
+                    style: TextStyle(
+                      color: secondaryColor.withValues(alpha: 0.7),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _pickAttachment,
+                    icon: Icon(Icons.attach_file, size: 18, color: secondaryColor),
+                    label: Text('Add File', style: TextStyle(color: secondaryColor)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: secondaryColor.withValues(alpha: 0.5)),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                ],
+              ),
+
+              // List of attachments
+              if (_attachments.isNotEmpty) ...[
+                SizedBox(height: 8),
+                ...List.generate(_attachments.length, (index) {
+                  final attachment = _attachments[index];
+                  return Container(
+                    margin: EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: secondaryColor.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        // Thumbnail
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(4),
+                            color: Colors.white,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.memory(
+                              base64Decode(attachment.thumbnailBase64),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        // File info
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                attachment.fileName,
+                                style: TextStyle(
+                                  color: secondaryColor,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                '${AttachmentService.formatFileSize(attachment.originalSizeBytes)}${!attachment.isFullFileInExcel ? ' (thumbnail only)' : ''}',
+                                style: TextStyle(
+                                  color: secondaryColor.withValues(alpha: 0.6),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Remove button
+                        IconButton(
+                          icon: Icon(Icons.close, size: 18, color: Colors.red[400]),
+                          onPressed: () => _removeAttachment(index),
+                          padding: EdgeInsets.all(4),
+                          constraints: BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
             ],
           ),
         ),

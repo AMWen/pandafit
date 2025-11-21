@@ -22,6 +22,7 @@ class ExcelExportService {
       await _createLowerBodySheet(excel);
       await _createCoreSheet(excel);
       await _createActivitiesSheet(excel);
+      await _createActivityAttachmentsSheet(excel);
       await _createUserActivitiesSheet(excel);
       await _createExercisePreferencesSheet(excel);
       await _createUserCustomExercisesSheet(excel);
@@ -265,8 +266,8 @@ class ExcelExportService {
     final db = await LocalDB.database;
     final logs = await db.query('workout_logs', orderBy: 'date ASC');
 
-    // Collect all activities and organize by date
-    Map<String, Map<String, ActivityHistory>> activitiesByName = {};
+    // Collect all activities and organize by date (combine duplicates)
+    Map<String, Map<String, Activity>> activitiesByName = {};
 
     for (var log in logs) {
       final dateStr = log['date'] as String;
@@ -280,11 +281,32 @@ class ExcelExportService {
             if (!activitiesByName.containsKey(activity.name)) {
               activitiesByName[activity.name] = {};
             }
-            activitiesByName[activity.name]![dateStr] = ActivityHistory(
-              date: dateStr,
-              durationMinutes: activity.durationMinutes,
-              notes: activity.notes,
-            );
+
+            // Check if activity already exists for this date (duplicate entry)
+            final existing = activitiesByName[activity.name]![dateStr];
+            if (existing != null) {
+              // Combine: add durations, concatenate notes, merge attachments
+              final combinedDuration = existing.durationMinutes + activity.durationMinutes;
+              final combinedNotes = [
+                if (existing.notes != null && existing.notes!.isNotEmpty) existing.notes!,
+                if (activity.notes != null && activity.notes!.isNotEmpty) activity.notes!,
+              ].join(' | ');
+              final combinedAttachments = [
+                ...?existing.attachments,
+                ...?activity.attachments,
+              ];
+
+              activitiesByName[activity.name]![dateStr] = existing.copyWith(
+                durationMinutes: combinedDuration,
+                notes: combinedNotes.isEmpty ? null : combinedNotes,
+                attachments: combinedAttachments.isEmpty ? null : combinedAttachments,
+              );
+            } else {
+              // Store full Activity object with date
+              activitiesByName[activity.name]![dateStr] = activity.copyWith(
+                date: DateTime.parse(dateStr),
+              );
+            }
           }
         }
       }
@@ -483,6 +505,104 @@ class ExcelExportService {
         .value = TextCellValue(settings[i][0] as String);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
         .value = IntCellValue(settings[i][1] as int);
+    }
+  }
+
+  /// Create Activity Attachments sheet
+  static Future<void> _createActivityAttachmentsSheet(Excel excel) async {
+    final sheet = excel[ExcelSheetNames.activityAttachments];
+
+    final db = await LocalDB.database;
+    final logs = await db.query('workout_logs', orderBy: 'date ASC');
+
+    // Collect all activity attachments (combine duplicates by date + activity name)
+    // First collect activities with combined attachments
+    Map<String, Map<String, List<dynamic>>> attachmentsByActivity = {};
+
+    for (var log in logs) {
+      final dateStr = log['date'] as String;
+      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+
+      for (var item in exercisesJson) {
+        if (item is Map && item['isActivity'] == true) {
+          final activities = (item['activities'] as List);
+          for (var activityData in activities) {
+            final activity = Activity.fromMap(activityData);
+
+            // Check if activity has attachments
+            if (activity.attachments != null && activity.attachments!.isNotEmpty) {
+              final key = '$dateStr|${activity.name}';
+              if (!attachmentsByActivity.containsKey(key)) {
+                attachmentsByActivity[key] = {
+                  'date': [dateStr],
+                  'activityName': [activity.name],
+                  'attachments': [],
+                };
+              }
+              (attachmentsByActivity[key]!['attachments'] as List).addAll(activity.attachments!);
+            }
+          }
+        }
+      }
+    }
+
+    // Flatten to list of attachment records
+    final attachments = <Map<String, dynamic>>[];
+    for (var entry in attachmentsByActivity.entries) {
+      final dateStr = (entry.value['date'] as List).first as String;
+      final activityName = (entry.value['activityName'] as List).first as String;
+      final activityAttachments = entry.value['attachments'] as List;
+
+      for (var attachment in activityAttachments) {
+        attachments.add({
+          'date': dateStr,
+          'activityName': activityName,
+          'fileName': attachment.fileName,
+          'mimeType': attachment.mimeType,
+          'originalSize': attachment.originalSizeBytes,
+          'thumbnailBase64': attachment.thumbnailBase64,
+          'fullFileBase64': attachment.fullFileBase64,
+        });
+      }
+    }
+
+    if (attachments.isEmpty) {
+      // Create empty sheet with headers only
+      final headers = ['Date', 'Activity', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
+      for (int i = 0; i < headers.length; i++) {
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+          ..value = TextCellValue(headers[i])
+          ..cellStyle = CellStyle(bold: true, backgroundColorHex: ExcelColor.blue200);
+      }
+      return;
+    }
+
+    // Build header row
+    final headers = ['Date', 'Activity', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
+    for (int i = 0; i < headers.length; i++) {
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+        ..value = TextCellValue(headers[i])
+        ..cellStyle = CellStyle(bold: true, backgroundColorHex: ExcelColor.blue200);
+    }
+
+    // Build data rows
+    for (int rowIdx = 0; rowIdx < attachments.length; rowIdx++) {
+      final attachment = attachments[rowIdx];
+
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['date'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['activityName'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['fileName'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['mimeType'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIdx + 1))
+        .value = IntCellValue(attachment['originalSize'] as int);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['thumbnailBase64'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['fullFileBase64'] as String? ?? '');
     }
   }
 }

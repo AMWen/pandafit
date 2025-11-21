@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,19 +15,31 @@ class ExcelImportService {
   /// Import workout data from XLSX file with user selection
   static Future<String> importFromExcel(BuildContext context) async {
     try {
-      // Pick file
+      // Pick file with data loading enabled for cloud file support
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
+        withData: true, // Load bytes for cloud files
       );
 
-      if (result == null || result.files.first.path == null) {
+      if (result == null || result.files.isEmpty) {
         return 'Import canceled';
       }
 
-      final filePath = result.files.first.path!;
-      final file = File(filePath);
-      final bytes = file.readAsBytesSync();
+      final platformFile = result.files.first;
+
+      // Try to get bytes directly (works for cloud files like Google Drive)
+      Uint8List? bytes = platformFile.bytes;
+
+      // Fallback to path-based reading for large local files
+      if (bytes == null) {
+        if (platformFile.path == null) {
+          return 'Error: Unable to access file. Try downloading to device first.';
+        }
+        final file = File(platformFile.path!);
+        bytes = await file.readAsBytes();
+      }
+
       final excel = Excel.decodeBytes(bytes);
 
       // Get available sheets
@@ -83,6 +96,12 @@ class ExcelImportService {
       // Import Activities history
       if (selectedSheets[ExcelSheetNames.otherActivities] == true) {
         await _importActivitiesHistory(excel, importAsReplace);
+        importCount++;
+      }
+
+      // Import Activity Attachments
+      if (selectedSheets[ExcelSheetNames.activityAttachments] == true) {
+        await _importActivityAttachments(excel, importAsReplace);
         importCount++;
       }
 
@@ -613,6 +632,93 @@ class ExcelImportService {
         lowerBodyCount: settings['Lower Body Count'] ?? 4,
       );
       await box.put(HiveBoxNames.workoutGenPrefsKey, prefs);
+    }
+  }
+
+  /// Import Activity Attachments from sheet
+  static Future<void> _importActivityAttachments(Excel excel, bool replace) async {
+    final sheet = excel.tables[ExcelSheetNames.activityAttachments];
+    if (sheet == null || sheet.maxRows < 2) return;
+
+    final db = await LocalDB.database;
+
+    // Group attachments by date and activity
+    final attachmentsByDateAndActivity = <String, Map<String, List<Map<String, dynamic>>>>{};
+
+    // Skip header row
+    for (int i = 1; i < sheet.maxRows; i++) {
+      final date = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i)).value?.toString();
+      final activityName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i)).value?.toString();
+      final fileName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i)).value?.toString();
+      final mimeType = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i)).value?.toString();
+      final originalSizeStr = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i)).value?.toString();
+      final thumbnailBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i)).value?.toString();
+      final fullFileBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i)).value?.toString();
+
+      if (date == null || activityName == null || fileName == null || mimeType == null || thumbnailBase64 == null) {
+        continue; // Skip invalid rows
+      }
+
+      final originalSize = int.tryParse(originalSizeStr ?? '0') ?? 0;
+
+      final attachmentData = {
+        'fileName': fileName,
+        'mimeType': mimeType,
+        'thumbnailBase64': thumbnailBase64,
+        'fullFileBase64': fullFileBase64 != null && fullFileBase64.isNotEmpty ? fullFileBase64 : null,
+        'attachedDate': DateTime.now().toIso8601String(),
+        'originalSizeBytes': originalSize,
+      };
+
+      if (!attachmentsByDateAndActivity.containsKey(date)) {
+        attachmentsByDateAndActivity[date] = {};
+      }
+      if (!attachmentsByDateAndActivity[date]!.containsKey(activityName)) {
+        attachmentsByDateAndActivity[date]![activityName] = [];
+      }
+      attachmentsByDateAndActivity[date]![activityName]!.add(attachmentData);
+    }
+
+    // Update activities in database with attachments
+    for (var dateEntry in attachmentsByDateAndActivity.entries) {
+      final date = dateEntry.key;
+      final activitiesByName = dateEntry.value;
+
+      // Get existing workout log for this date
+      final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+
+      if (existing.isEmpty) {
+        continue; // No activity record for this date, skip
+      }
+
+      final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
+      bool modified = false;
+
+      // Find activity entries and add attachments
+      for (int i = 0; i < existingExercises.length; i++) {
+        final item = existingExercises[i];
+        if (item is Map && item['isActivity'] == true) {
+          final activities = item['activities'] as List;
+
+          for (int j = 0; j < activities.length; j++) {
+            final activityData = activities[j] as Map<String, dynamic>;
+            final activityName = activityData['name'] as String;
+
+            if (activitiesByName.containsKey(activityName)) {
+              // Add attachments to this activity
+              activityData['attachments'] = activitiesByName[activityName];
+              modified = true;
+            }
+          }
+        }
+      }
+
+      // Update database if modified
+      if (modified) {
+        await db.update('workout_logs', {
+          'exercises': jsonEncode(existingExercises),
+        }, where: 'date = ?', whereArgs: [date]);
+      }
     }
   }
 }

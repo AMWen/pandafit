@@ -452,5 +452,6 @@ class ExcelSheetNames {
   static const String exercisePreferences = 'Exercise Preferences';
   static const String userCustomExercises = 'User Custom Exercises';
   static const String workoutSettings = 'Workout Settings';
+  static const String activityAttachments = 'Activity Attachments';
 }
 

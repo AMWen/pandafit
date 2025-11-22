@@ -65,37 +65,45 @@ class ExcelImportService {
 
       int importCount = 0;
 
-      // Import workout history first (if replace mode, clear existing data)
-      if (importAsReplace && (selectedSheets[ExcelSheetNames.upperBody] == true ||
-          selectedSheets[ExcelSheetNames.lowerBody] == true ||
-          selectedSheets[ExcelSheetNames.core] == true ||
-          selectedSheets[ExcelSheetNames.otherActivities] == true)) {
-        // Clear workout logs if replacing
-        final db = await LocalDB.database;
-        await db.delete('workout_logs');
+      // Clear selected muscle groups in single pass if replacing
+      if (importAsReplace) {
+        final groupsToClear = <MuscleGroup>{};
+        if (selectedSheets[ExcelSheetNames.upperBody] == true) {
+          groupsToClear.add(MuscleGroup.upperBody);
+        }
+        if (selectedSheets[ExcelSheetNames.lowerBody] == true) {
+          groupsToClear.add(MuscleGroup.lowerBody);
+        }
+        if (selectedSheets[ExcelSheetNames.core] == true) {
+          groupsToClear.add(MuscleGroup.core);
+        }
+        if (selectedSheets[ExcelSheetNames.otherActivities] == true) {
+          groupsToClear.add(MuscleGroup.otherActivity);
+        }
+        await _clearSelectedMuscleGroups(groupsToClear);
       }
 
       // Import Upper Body history
       if (selectedSheets[ExcelSheetNames.upperBody] == true) {
-        await _importUpperBodyHistory(excel, importAsReplace);
+        await _importUpperBodyHistory(excel);
         importCount++;
       }
 
       // Import Lower Body history
       if (selectedSheets[ExcelSheetNames.lowerBody] == true) {
-        await _importLowerBodyHistory(excel, importAsReplace);
+        await _importLowerBodyHistory(excel);
         importCount++;
       }
 
       // Import Core history
       if (selectedSheets[ExcelSheetNames.core] == true) {
-        await _importCoreHistory(excel, importAsReplace);
+        await _importCoreHistory(excel);
         importCount++;
       }
 
       // Import Activities history
       if (selectedSheets[ExcelSheetNames.otherActivities] == true) {
-        await _importActivitiesHistory(excel, importAsReplace);
+        await _importActivitiesHistory(excel);
         importCount++;
       }
 
@@ -139,8 +147,63 @@ class ExcelImportService {
     }
   }
 
+  /// Helper to clear exercises of multiple muscle groups from all workout logs in single pass
+  static Future<void> _clearSelectedMuscleGroups(Set<MuscleGroup> muscleGroups) async {
+    if (muscleGroups.isEmpty) return;
+
+    final db = await LocalDB.database;
+    final logs = await db.query('workout_logs');
+
+    for (var log in logs) {
+      final date = log['date'] as String;
+      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+      final targetArea = log['target_area'] as String;
+
+      // Filter out exercises of all selected muscle groups
+      final filteredExercises = exercisesJson.where((item) {
+        if (item is Map) {
+          for (final muscleGroup in muscleGroups) {
+            // Check regular exercises
+            if (item['muscleGroup'] == muscleGroupToString(muscleGroup)) {
+              return false;
+            }
+            // Check activities (for otherActivity muscle group)
+            if (muscleGroup == MuscleGroup.otherActivity && item['isActivity'] == true) {
+              return false;
+            }
+            // Check core workouts
+            if (muscleGroup == MuscleGroup.core && item['isCoreWorkout'] == true) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }).toList();
+
+      if (filteredExercises.isEmpty) {
+        // Delete the entire log entry if no exercises remain
+        await db.delete('workout_logs', where: 'date = ?', whereArgs: [date]);
+      } else {
+        // Update target area by removing selected muscle groups
+        var newTargetArea = targetArea;
+        for (final muscleGroup in muscleGroups) {
+          final muscleGroupStr = muscleGroupToString(muscleGroup);
+          newTargetArea = newTargetArea
+              .split(' + ')
+              .where((t) => t != muscleGroupStr)
+              .join(' + ');
+        }
+
+        await db.update('workout_logs', {
+          'exercises': jsonEncode(filteredExercises),
+          'target_area': newTargetArea.isEmpty ? 'Unknown' : newTargetArea,
+        }, where: 'date = ?', whereArgs: [date]);
+      }
+    }
+  }
+
   /// Import Upper Body workout history from sheet
-  static Future<void> _importUpperBodyHistory(Excel excel, bool replace) async {
+  static Future<void> _importUpperBodyHistory(Excel excel) async {
     final sheet = excel.tables[ExcelSheetNames.upperBody];
     if (sheet == null || sheet.maxRows < 2) return;
 
@@ -225,7 +288,7 @@ class ExcelImportService {
   }
 
   /// Import Lower Body workout history from sheet
-  static Future<void> _importLowerBodyHistory(Excel excel, bool replace) async {
+  static Future<void> _importLowerBodyHistory(Excel excel) async {
     final sheet = excel.tables[ExcelSheetNames.lowerBody];
     if (sheet == null || sheet.maxRows < 2) return;
 
@@ -310,7 +373,7 @@ class ExcelImportService {
   }
 
   /// Import Core workout history from sheet
-  static Future<void> _importCoreHistory(Excel excel, bool replace) async {
+  static Future<void> _importCoreHistory(Excel excel) async {
     final sheet = excel.tables[ExcelSheetNames.core];
     if (sheet == null || sheet.maxRows < 2) return;
 
@@ -397,7 +460,7 @@ class ExcelImportService {
   }
 
   /// Import Activities workout history from sheet
-  static Future<void> _importActivitiesHistory(Excel excel, bool replace) async {
+  static Future<void> _importActivitiesHistory(Excel excel) async {
     final sheet = excel.tables[ExcelSheetNames.otherActivities];
     if (sheet == null || sheet.maxRows < 2) return;
 

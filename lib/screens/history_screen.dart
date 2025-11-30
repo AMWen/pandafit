@@ -214,7 +214,7 @@ class HistoryScreenState extends State<HistoryScreen>
     return workouts.isEmpty ? [] : ['Workout'];
   }
 
-  Future<void> _showRoutineForDate(DateTime date) async {
+  Future<void> _showRoutineForDate(DateTime date, {int initialTabIndex = 0}) async {
     final workoutsByGroup = await LocalDB.getWorkoutsByMuscleGroup(date);
     final coreWorkout = await LocalDB.getCoreRoutineForDate(date);
     final activities = await LocalDB.getActivitiesForDate(date);
@@ -228,6 +228,7 @@ class HistoryScreenState extends State<HistoryScreen>
           workoutsByGroup: workoutsByGroup,
           coreWorkout: coreWorkout,
           activities: activities,
+          initialTabIndex: initialTabIndex,
           onWorkoutChanged: () {
             // Refresh calendar dots immediately when workout changes
             _loadWorkoutDates();
@@ -318,8 +319,8 @@ class HistoryScreenState extends State<HistoryScreen>
         controller: _tabController,
         children: [
           _buildCalendarView(),
-          _buildProgressList(_upperBodyHistory),
-          _buildProgressList(_lowerBodyHistory),
+          _buildProgressList(_upperBodyHistory, MuscleGroup.upperBody),
+          _buildProgressList(_lowerBodyHistory, MuscleGroup.lowerBody),
           _buildActivitiesList(_activitiesHistory),
         ],
       ),
@@ -470,7 +471,7 @@ class HistoryScreenState extends State<HistoryScreen>
     );
   }
 
-  Widget _buildProgressList(Map<String, List<ExerciseHistory>> historyMap) {
+  Widget _buildProgressList(Map<String, List<ExerciseHistory>> historyMap, MuscleGroup muscleGroup) {
     if (_isLoadingProgress) {
       return Center(child: CircularProgressIndicator());
     }
@@ -531,16 +532,19 @@ class HistoryScreenState extends State<HistoryScreen>
           final exerciseIndex = index - 1;
           final exerciseName = exerciseNames[exerciseIndex];
           final history = historyMap[exerciseName]!;
-          return _buildExerciseCard(exerciseName, history);
+          return _buildExerciseCard(exerciseName, history, muscleGroup);
         },
       ),
     );
   }
 
-  Widget _buildExerciseCard(String exerciseName, List<ExerciseHistory> history) {
+  Widget _buildExerciseCard(String exerciseName, List<ExerciseHistory> history, MuscleGroup muscleGroup) {
     // Sort by date (most recent first)
     final sortedHistory = List<ExerciseHistory>.from(history)
       ..sort((a, b) => b.date.compareTo(a.date));
+
+    // Determine tab index based on muscle group using tab order
+    final tabIndex = workoutTabOrder.indexOf(muscleGroup);
 
     // Check if this exercise is expanded
     final isExpanded = _expandedExercises.contains(exerciseName);
@@ -600,6 +604,7 @@ class HistoryScreenState extends State<HistoryScreen>
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                showCheckboxColumn: false,
                 headingRowHeight: 32,
                 dataRowMinHeight: 28,
                 dataRowMaxHeight: 40,
@@ -613,11 +618,18 @@ class HistoryScreenState extends State<HistoryScreen>
                 ],
                 rows: displayedHistory.map((entry) {
                   final sets = entry.completedSets.join(', ');
-                  return DataRow(cells: [
-                    DataCell(Text(_formatDate(entry.date))),
-                    DataCell(Text(entry.weight != null ? '${formatWeight(entry.weight!)}lb' : '-')),
-                    DataCell(Text(sets.isNotEmpty ? sets : '-')),
-                  ]);
+                  return DataRow(
+                    onSelectChanged: (_) {
+                      // Parse date and open dialog with appropriate tab
+                      final date = DateTime.parse(entry.date);
+                      _showRoutineForDate(date, initialTabIndex: tabIndex);
+                    },
+                    cells: [
+                      DataCell(Text(_formatDate(entry.date))),
+                      DataCell(Text(entry.weight != null ? '${formatWeight(entry.weight!)}lb' : '-')),
+                      DataCell(Text(sets.isNotEmpty ? sets : '-')),
+                    ],
+                  );
                 }).toList(),
               ),
             ),
@@ -735,6 +747,7 @@ class HistoryScreenState extends State<HistoryScreen>
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                showCheckboxColumn: false,
                 headingRowHeight: 32,
                 dataRowMinHeight: 28,
                 dataRowMaxHeight: 40,
@@ -753,18 +766,27 @@ class HistoryScreenState extends State<HistoryScreen>
                   final notesStr = activity.notes ?? '';
                   final hasAttachments = activity.attachments != null && activity.attachments!.isNotEmpty;
 
-                  return DataRow(cells: [
-                    DataCell(Text(dateStr)),
-                    DataCell(Text(durationStr)),
-                    DataCell(
-                      _buildNotesCell(notesStr),
-                    ),
-                    DataCell(
-                      hasAttachments
-                          ? _buildAttachmentsCell(activity)
-                          : SizedBox.shrink(),
-                    ),
-                  ]);
+                  return DataRow(
+                    onSelectChanged: (_) {
+                      // Open dialog with activities tab selected
+                      if (activity.date != null) {
+                        final tabIndex = workoutTabOrder.indexOf(MuscleGroup.otherActivity);
+                        _showRoutineForDate(activity.date!, initialTabIndex: tabIndex);
+                      }
+                    },
+                    cells: [
+                      DataCell(Text(dateStr)),
+                      DataCell(Text(durationStr)),
+                      DataCell(
+                        _buildNotesCell(notesStr),
+                      ),
+                      DataCell(
+                        hasAttachments
+                            ? _buildAttachmentsCell(activity)
+                            : SizedBox.shrink(),
+                      ),
+                    ],
+                  );
                 }).toList(),
               ),
             ),
@@ -888,6 +910,7 @@ class _WorkoutHistoryDialog extends StatefulWidget {
   final Map<MuscleGroup, List<Exercise>> workoutsByGroup;
   final CoreWorkoutRoutine? coreWorkout;
   final ActivityRoutine? activities;
+  final int initialTabIndex;
   final VoidCallback? onWorkoutChanged;
 
   const _WorkoutHistoryDialog({
@@ -895,6 +918,7 @@ class _WorkoutHistoryDialog extends StatefulWidget {
     required this.workoutsByGroup,
     this.coreWorkout,
     this.activities,
+    this.initialTabIndex = 0,
     this.onWorkoutChanged,
   });
 
@@ -903,14 +927,6 @@ class _WorkoutHistoryDialog extends StatefulWidget {
 }
 
 class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with SingleTickerProviderStateMixin {
-  // Single source of truth for tab ordering
-  static const List<MuscleGroup> _tabOrder = [
-    MuscleGroup.upperBody,
-    MuscleGroup.lowerBody,
-    MuscleGroup.core,
-    MuscleGroup.otherActivity,
-  ];
-
   late TabController _tabController;
   late int _totalTabs;
   bool _isEditing = false;
@@ -930,7 +946,11 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     super.initState();
     // Always show all 4 tabs in consistent order
     _totalTabs = 4;
-    _tabController = TabController(length: _totalTabs, vsync: this);
+    _tabController = TabController(
+      length: _totalTabs,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, _totalTabs - 1),
+    );
 
     // Add listener to rebuild when tab changes (updates Add/Edit button)
     _tabController.addListener(() {
@@ -1412,9 +1432,9 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     final hasMultipleTabs = _totalTabs > 1;
 
     // Always show all 4 tabs in consistent order using source of truth
-    final tabLabels = _tabOrder.map((mg) => muscleGroupShortName(mg)).toList();
+    final tabLabels = workoutTabOrder.map((mg) => muscleGroupShortName(mg)).toList();
 
-    final tabContent = _tabOrder.map((muscleGroup) {
+    final tabContent = workoutTabOrder.map((muscleGroup) {
       if (muscleGroup == MuscleGroup.core) {
         return _editableCoreWorkout != null
             ? _buildCoreWorkoutList(_editableCoreWorkout!)
@@ -1441,7 +1461,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
               controller: _tabController,
               indicatorColor: primaryColor,
               labelPadding: EdgeInsets.symmetric(horizontal: 4),
-              tabs: _tabOrder.asMap().entries.map((entry) {
+              tabs: workoutTabOrder.asMap().entries.map((entry) {
                 final index = entry.key;
                 final muscleGroup = entry.value;
                 final hasContent = _hasContent(muscleGroup);
@@ -1491,7 +1511,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
               Builder(
                 builder: (context) {
                   final currentTabIndex = _tabController.index;
-                  final currentMuscleGroup = _tabOrder[currentTabIndex];
+                  final currentMuscleGroup = workoutTabOrder[currentTabIndex];
                   final hasContent = _hasContent(currentMuscleGroup);
                   final isOtherActivities = currentMuscleGroup == MuscleGroup.otherActivity;
 
@@ -1618,7 +1638,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
 
   Future<void> _addWorkoutForCurrentTab() async {
     final currentTabIndex = _tabController.index;
-    final currentMuscleGroup = _tabOrder[currentTabIndex];
+    final currentMuscleGroup = workoutTabOrder[currentTabIndex];
 
     // Check if content already exists (shouldn't happen, but handle it)
     if (_hasContent(currentMuscleGroup)) {
@@ -1758,9 +1778,9 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
   Future<void> _deleteCurrentWorkout() async {
     // Determine which workout to delete based on current tab
     final tabIndex = _tabController.index;
-    if (tabIndex < 0 || tabIndex >= _tabOrder.length) return;
+    if (tabIndex < 0 || tabIndex >= workoutTabOrder.length) return;
 
-    final muscleGroup = _tabOrder[tabIndex];
+    final muscleGroup = workoutTabOrder[tabIndex];
     final workoutName = muscleGroupShortName(muscleGroup);
 
     final confirmed = await showDialog<bool>(

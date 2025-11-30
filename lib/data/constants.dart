@@ -52,6 +52,14 @@ class WorkoutColors {
   }
 }
 
+// Standard workout tab ordering used across the app
+const List<MuscleGroup> workoutTabOrder = [
+  MuscleGroup.upperBody,
+  MuscleGroup.lowerBody,
+  MuscleGroup.core,
+  MuscleGroup.otherActivity,
+];
+
 // Short form names for muscle groups
 String muscleGroupShortName(MuscleGroup group) {
   switch (group) {

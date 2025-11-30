@@ -1221,22 +1221,20 @@ class _HomeScreenState extends State<HomeScreen> {
           fontSize: 12,
         ),
         items: [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.fitness_center),
-            label: muscleGroupShortName(MuscleGroup.upperBody),
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.directions_run),
-            label: muscleGroupShortName(MuscleGroup.lowerBody),
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.accessibility_new),
-            label: muscleGroupShortName(MuscleGroup.core),
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.directions_bike),
-            label: muscleGroupShortName(MuscleGroup.otherActivity),
-          ),
+          // Generate navigation items from workoutTabOrder
+          ...workoutTabOrder.map((muscleGroup) {
+            final iconMap = {
+              MuscleGroup.upperBody: Icons.fitness_center,
+              MuscleGroup.lowerBody: Icons.directions_run,
+              MuscleGroup.core: Icons.accessibility_new,
+              MuscleGroup.otherActivity: Icons.directions_bike,
+            };
+            return BottomNavigationBarItem(
+              icon: Icon(iconMap[muscleGroup]),
+              label: muscleGroupShortName(muscleGroup),
+            );
+          }),
+          // History tab
           BottomNavigationBarItem(
             icon: Icon(Icons.history),
             label: 'History',

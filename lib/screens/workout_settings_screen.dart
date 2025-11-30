@@ -296,11 +296,11 @@ class _WorkoutSettingsScreenState extends State<WorkoutSettingsScreen> {
                       '${exercise.reps} reps',
                       if (includeStatus.isNotEmpty) includeStatus,
                     ].join(' - '),
-                    style: TextStyle(color: exercise.neverInclude ? Colors.red[700] : null),
+                    style: TextStyle(color: exercise.neverInclude ? ActionColors.error : null),
                   ),
                   trailing: Icon(
                     exercise.neverInclude ? Icons.block : Icons.edit,
-                    color: exercise.neverInclude ? Colors.red : null,
+                    color: exercise.neverInclude ? ActionColors.error : null,
                   ),
                   onTap: () => _showEditExercisePreferenceDialog(exercise.name, isUserCustom: true),
                 ),
@@ -440,14 +440,14 @@ class _WorkoutSettingsScreenState extends State<WorkoutSettingsScreen> {
               subtitle: Text(
                 [weightStr, '$reps reps', if (includeStatus.isNotEmpty) includeStatus].join(' - '),
                 style: TextStyle(
-                  color: customPref?.neverInclude == true ? Colors.red[700] : Colors.grey[700],
+                  color: customPref?.neverInclude == true ? ActionColors.error : Colors.grey[700],
                   fontSize: 12,
                 ),
               ),
               trailing: Icon(
                 hasCustomPref ? (customPref!.neverInclude ? Icons.block : Icons.star) : Icons.edit,
                 color:
-                    hasCustomPref ? (customPref!.neverInclude ? Colors.red : Colors.amber) : null,
+                    hasCustomPref ? (customPref!.neverInclude ? ActionColors.error : Colors.amber) : null,
               ),
               onTap: () => _showEditExercisePreferenceDialog(exercise.name),
               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1089,13 +1089,13 @@ class _ExerciseDialogState extends State<_ExerciseDialog> {
                           Navigator.pop(context);
                         },
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: BorderSide(color: Colors.red),
-                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          foregroundColor: ActionColors.delete,
+                          side: BorderSide(color: ActionColors.delete),
+                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
                         child: Text('Delete', style: TextStyle(fontSize: 16)),
                       ),
-                      SizedBox(width: 12),
+                      SizedBox(width: 10),
                     ],
                     if (isEditDefault) ...[
                       OutlinedButton(
@@ -1103,28 +1103,28 @@ class _ExerciseDialogState extends State<_ExerciseDialog> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: secondaryColor,
                           side: BorderSide(color: secondaryColor),
-                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
                         child: Text('Reset', style: TextStyle(fontSize: 16)),
                       ),
-                      SizedBox(width: 12),
+                      SizedBox(width: 10),
                     ],
                     OutlinedButton(
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: secondaryColor,
                         side: BorderSide(color: secondaryColor),
-                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                       child: Text('Cancel', style: TextStyle(fontSize: 16)),
                     ),
-                    SizedBox(width: 12),
+                    SizedBox(width: 10),
                     ElevatedButton(
                       onPressed: _save,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                       ),
                       child: Text(
                         isAddMode ? 'Add Exercise' : 'Save',
@@ -1304,7 +1304,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
               widget.onDelete();
               Navigator.of(context).pop(); // Close edit dialog
             },
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: ActionColors.delete),
             child: Text('Delete'),
           ),
         ],
@@ -1364,7 +1364,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
       actions: [
         TextButton(
           onPressed: _confirmDelete,
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          style: TextButton.styleFrom(foregroundColor: ActionColors.delete),
           child: Text('Delete'),
         ),
         TextButton(

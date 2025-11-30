@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import '../constants.dart';
 
 class InlineYouTubePlayer extends StatefulWidget {
   final String videoUrl;
@@ -56,10 +57,10 @@ class _InlineYouTubePlayerState extends State<InlineYouTubePlayer> {
     if (_videoId.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(16.0),
-        child: const Text(
+        child: Text(
           'Invalid video link',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.red),
+          style: TextStyle(color: ActionColors.error),
         ),
       );
     }

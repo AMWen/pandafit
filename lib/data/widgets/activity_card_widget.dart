@@ -118,7 +118,7 @@ class ActivityCard extends StatelessWidget {
                 ),
               if (onDelete != null)
                 IconButton(
-                  icon: Icon(Icons.delete_outline, color: Colors.red[700]),
+                  icon: Icon(Icons.delete_outline, color: ActionColors.delete),
                   onPressed: onDelete,
                   tooltip: 'Remove',
                 ),
@@ -199,7 +199,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error adding attachment: $e'),
-            backgroundColor: Colors.red[700],
+            backgroundColor: ActionColors.error,
           ),
         );
       }
@@ -460,7 +460,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                         ),
                         // Remove button
                         IconButton(
-                          icon: Icon(Icons.close, size: 18, color: Colors.red[400]),
+                          icon: Icon(Icons.close, size: 18, color: ActionColors.delete),
                           onPressed: () => _removeAttachment(index),
                           padding: EdgeInsets.all(4),
                           constraints: BoxConstraints(),

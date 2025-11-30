@@ -147,7 +147,7 @@ class _ExerciseCardState extends State<ExerciseCard> {
                           Transform.translate(
                             offset: Offset(8, 0),
                             child: IconButton(
-                              icon: Icon(Icons.play_circle_outline, color: Colors.red),
+                              icon: Icon(Icons.play_circle_outline, color: ActionColors.error),
                               onPressed: widget.onLaunchVideo,
                               tooltip: 'Watch video',
                               padding: EdgeInsets.all(8),

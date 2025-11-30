@@ -8,6 +8,28 @@ Color secondaryColor = Colors.grey[200]!;
 Color dullColor = Colors.grey[500]!;
 const double pandaWidth = 200;
 
+// Action colors for consistent UI feedback
+class ActionColors {
+  static final Color delete = Colors.red[700]!;
+  static const Color error = Colors.red;
+}
+
+// Reusable button styles
+final primaryButtonStyle = OutlinedButton.styleFrom(
+  foregroundColor: primaryColor,
+  side: BorderSide(color: primaryColor),
+  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+);
+
+final compactButtonStyle = OutlinedButton.styleFrom(
+  foregroundColor: primaryColor,
+  side: BorderSide(color: primaryColor),
+);
+
+final smallButtonStyle = OutlinedButton.styleFrom(
+  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+);
+
 // Calendar marker colors for different workout types
 class WorkoutColors {
   static const Color upperBody = Color(0xFF2196F3); // Blue
@@ -27,6 +49,20 @@ class WorkoutColors {
       case MuscleGroup.otherActivity:
         return otherActivity;
     }
+  }
+}
+
+// Short form names for muscle groups
+String muscleGroupShortName(MuscleGroup group) {
+  switch (group) {
+    case MuscleGroup.upperBody:
+      return 'Upper';
+    case MuscleGroup.lowerBody:
+      return 'Lower';
+    case MuscleGroup.core:
+      return 'Core';
+    case MuscleGroup.otherActivity:
+      return 'Activities';
   }
 }
 

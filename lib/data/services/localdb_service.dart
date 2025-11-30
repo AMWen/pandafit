@@ -67,6 +67,16 @@ class LocalDB {
 
   // Insert a completed workout (appends if same day, different target area)
   static Future<void> insertWorkout(WorkoutRoutine routine, [String? date]) async {
+    // Filter out skipped exercises - only save completed ones
+    final completedExercises = routine.exercises
+        .where((ex) => isExerciseCompleted(ex))
+        .toList();
+
+    // Don't insert empty workouts
+    if (completedExercises.isEmpty) {
+      return;
+    }
+
     final db = await database;
     if (date == null) {
       final now = DateTime.now();
@@ -98,10 +108,10 @@ class LocalDB {
         }
       }
 
-      // Combine all data: existing regular exercises + new exercises + existing core workouts
+      // Combine all data: existing regular exercises + new completed exercises + existing core workouts
       final allData = [
         ...regularExercises,
-        ...routine.exercises.map((e) => e.toJson()),
+        ...completedExercises.map((e) => e.toJson()),
         ...coreWorkouts,
       ];
 
@@ -110,11 +120,11 @@ class LocalDB {
         'exercises': jsonEncode(allData),
       }, where: 'date = ?', whereArgs: [date]);
     } else {
-      // Insert new workout
+      // Insert new workout with only completed exercises
       await db.insert('workout_logs', {
         'date': date,
         'target_area': muscleGroupToString(routine.targetArea),
-        'exercises': jsonEncode(routine.exercises.map((e) => e.toJson()).toList()),
+        'exercises': jsonEncode(completedExercises.map((e) => e.toJson()).toList()),
       });
     }
   }
@@ -313,17 +323,24 @@ class LocalDB {
 
     final exercisesJson = jsonDecode(existing.first['exercises'] as String) as List;
 
-    // Separate core workouts from regular exercises, then filter by muscle group
+    // Separate core workouts and activities from regular exercises, then filter by muscle group
     final List<dynamic> remainingData = [];
     for (var item in exercisesJson) {
-      // Keep core workouts as-is
-      if (item is Map && item['isCore'] == true) {
-        remainingData.add(item);
-      } else {
-        // Only keep regular exercises that don't match the muscle group
-        final exercise = Exercise.fromJson(item);
-        if (exercise.muscleGroup != muscleGroup) {
+      if (item is Map) {
+        // Keep core workouts as-is
+        if (item['isCore'] == true) {
           remainingData.add(item);
+        }
+        // Keep activities as-is
+        else if (item['isActivity'] == true) {
+          remainingData.add(item);
+        }
+        // Only keep regular exercises that don't match the muscle group
+        else {
+          final exercise = Exercise.fromJson(Map<String, dynamic>.from(item));
+          if (exercise.muscleGroup != muscleGroup) {
+            remainingData.add(item);
+          }
         }
       }
     }
@@ -509,6 +526,11 @@ class LocalDB {
   // Core workout methods
   // Insert a completed core workout (stored separately in same table with special marker)
   static Future<void> insertCoreWorkout(CoreWorkoutRoutine routine, [String? date]) async {
+    // Don't insert empty core workouts
+    if (routine.exercises.isEmpty) {
+      return;
+    }
+
     final db = await database;
     if (date == null) {
       final now = DateTime.now();
@@ -679,6 +701,125 @@ class LocalDB {
         'target_area': activityLabel,
         'exercises': jsonEncode([activitiesData]),
       });
+    }
+  }
+
+  /// Updates workouts for a specific date while preserving workout types that aren't being managed.
+  ///
+  /// This method implements a load-modify-update pattern that:
+  /// 1. Loads existing workout data from database
+  /// 2. Removes workout types that were originally present (specified by original* parameters)
+  /// 3. Adds back the new workout data
+  /// 4. Preserves any workout types that weren't originally present
+  ///
+  /// This ensures that editing one muscle group doesn't accidentally delete other muscle groups.
+  ///
+  /// Example: If you had Upper Body + Core, and you edit Upper Body to add an exercise:
+  /// - originalMuscleGroups: {MuscleGroup.upperBody}
+  /// - newWorkoutsByGroup: {MuscleGroup.upperBody: [updated exercises]}
+  /// - originalHadCore: true
+  /// - newCoreWorkout: the existing core workout
+  /// Result: Upper Body (updated) + Core (preserved)
+  static Future<void> updateWorkoutsForDate({
+    required String date,
+    required Set<MuscleGroup> originalMuscleGroups,
+    required Map<MuscleGroup, List<Exercise>> newWorkoutsByGroup,
+    required bool originalHadCore,
+    CoreWorkoutRoutine? newCoreWorkout,
+    required bool originalHadActivities,
+    List<Activity>? newActivities,
+  }) async {
+    final db = await database;
+
+    // Get existing workout log
+    final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+
+    List<dynamic> existingExercises = [];
+
+    if (existing.isNotEmpty) {
+      // Load existing exercises
+      final existingData = existing.first;
+      existingExercises = jsonDecode(existingData['exercises'] as String) as List;
+    }
+
+    // Remove all muscle group workouts that were originally present
+    for (final muscleGroup in originalMuscleGroups) {
+      existingExercises.removeWhere((item) =>
+        item is Map && item['muscleGroup'] == muscleGroupToString(muscleGroup));
+    }
+
+    // Remove core workout if it was originally present
+    if (originalHadCore) {
+      existingExercises.removeWhere((item) =>
+        item is Map && item['isCore'] == true);
+    }
+
+    // Remove activities if they were originally present
+    if (originalHadActivities) {
+      existingExercises.removeWhere((item) =>
+        item is Map && item['isActivity'] == true);
+    }
+
+    // Add back the new muscle group workouts
+    for (final exercises in newWorkoutsByGroup.values) {
+      for (final exercise in exercises) {
+        existingExercises.add(exercise.toJson());
+      }
+    }
+
+    // Add back core workout if present
+    if (newCoreWorkout != null) {
+      existingExercises.add({
+        'isCore': true,
+        'sets': newCoreWorkout.sets,
+        'exercisesPerSet': newCoreWorkout.exercisesPerSet,
+        'exercises': newCoreWorkout.exercises.map((e) => e.toJson()).toList(),
+      });
+    }
+
+    // Add back activities if present
+    if (newActivities != null && newActivities.isNotEmpty) {
+      existingExercises.add({
+        'isActivity': true,
+        'activities': newActivities.map((a) => a.toMap()).toList(),
+      });
+    }
+
+    // If all workouts were deleted, remove the entire entry
+    if (existingExercises.isEmpty) {
+      if (existing.isNotEmpty) {
+        await db.delete('workout_logs', where: 'date = ?', whereArgs: [date]);
+      }
+    } else {
+      // Calculate target area from all workouts
+      final targetAreas = <String>[];
+      if (newWorkoutsByGroup.containsKey(MuscleGroup.upperBody)) {
+        targetAreas.add(muscleGroupToString(MuscleGroup.upperBody));
+      }
+      if (newWorkoutsByGroup.containsKey(MuscleGroup.lowerBody)) {
+        targetAreas.add(muscleGroupToString(MuscleGroup.lowerBody));
+      }
+      if (newCoreWorkout != null) {
+        targetAreas.add(muscleGroupToString(MuscleGroup.core));
+      }
+      if (newActivities != null && newActivities.isNotEmpty) {
+        targetAreas.add(muscleGroupToString(MuscleGroup.otherActivity));
+      }
+      final targetAreaStr = targetAreas.isNotEmpty ? targetAreas.join(' + ') : 'Workout';
+
+      // Update or insert database entry
+      if (existing.isEmpty) {
+        await db.insert('workout_logs', {
+          'date': date,
+          'target_area': targetAreaStr,
+          'exercises': jsonEncode(existingExercises),
+        });
+      } else {
+        await db.update('workout_logs', {
+          'target_area': targetAreaStr,
+          'exercises': jsonEncode(existingExercises),
+        }, where: 'date = ?', whereArgs: [date]);
+      }
     }
   }
 

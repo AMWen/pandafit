@@ -100,6 +100,12 @@ class _MyAppState extends State<MyApp> {
           backgroundColor: primaryColor,
           foregroundColor: secondaryColor,
         ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: primaryColor,
+            side: BorderSide(color: primaryColor),
+          ),
+        ),
         textSelectionTheme: TextSelectionThemeData(
           cursorColor: secondaryColor,
           selectionColor: secondaryColor.withValues(alpha: 0.3),
@@ -117,6 +123,12 @@ class _MyAppState extends State<MyApp> {
         floatingActionButtonTheme: FloatingActionButtonThemeData(
           backgroundColor: primaryColor,
           foregroundColor: secondaryColor,
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: primaryColor,
+            side: BorderSide(color: primaryColor),
+          ),
         ),
         textSelectionTheme: TextSelectionThemeData(
           cursorColor: secondaryColor,

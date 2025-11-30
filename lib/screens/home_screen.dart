@@ -43,7 +43,10 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentCoreVideoUrl; // Track currently playing core video
   String? _currentExerciseVideoUrl; // Track currently playing exercise video
   String? _currentExerciseVideoName; // Track which exercise's video is playing
-  final ScrollController _scrollController = ScrollController();
+  final Map<MuscleGroup, ScrollController> _scrollControllers = {
+    MuscleGroup.upperBody: ScrollController(),
+    MuscleGroup.lowerBody: ScrollController(),
+  };
   final Map<String, GlobalKey> _exerciseKeys = {}; // Keys for exercises
   CoreWorkoutRoutine? completedCoreWorkoutToday;
   CoreWorkoutRoutine? completedCoreWorkoutYesterday;
@@ -71,7 +74,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _pageController.dispose();
-    _scrollController.dispose();
+    for (var controller in _scrollControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -118,6 +123,20 @@ class _HomeScreenState extends State<HomeScreen> {
     // Clear old incomplete workouts from previous days
     await LocalDB.clearOldIncompleteWorkouts();
 
+    // Clear all state before reloading to ensure fresh data
+    setState(() {
+      completedWorkoutsToday.clear();
+      cachedWorkouts.clear();
+      currentWorkout = null;
+      exerciseUpdates.clear();
+      isCoreCompleted = false;
+      isYesterdayCoreCompleted = false;
+      isActivityCompleted = false;
+      completedCoreWorkoutToday = null;
+      completedCoreWorkoutYesterday = null;
+      completedActivitiesToday = null;
+    });
+
     final routine = await LocalDB.getRoutineForDate(today);
     final coreRoutine = await LocalDB.getCoreRoutineForDate(today);
     final yesterdayCoreRoutine = await LocalDB.getCoreRoutineForDate(yesterday);
@@ -131,13 +150,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Load completed workouts and set default selection to Upper Body
     if (routine != null) {
-      // Group exercises by their muscle group
-      for (var exercise in routine.exercises) {
-        if (!completedWorkoutsToday.containsKey(exercise.muscleGroup)) {
-          completedWorkoutsToday[exercise.muscleGroup] = [];
+      setState(() {
+        // Group exercises by their muscle group
+        for (var exercise in routine.exercises) {
+          if (!completedWorkoutsToday.containsKey(exercise.muscleGroup)) {
+            completedWorkoutsToday[exercise.muscleGroup] = [];
+          }
+          completedWorkoutsToday[exercise.muscleGroup]!.add(exercise);
         }
-        completedWorkoutsToday[exercise.muscleGroup]!.add(exercise);
-      }
+      });
     }
 
     // Load completed core workout for today
@@ -269,13 +290,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (currentWorkout == null) return;
 
     // Apply all exercise updates to the workout
-    final updatedExercises = currentWorkout!.exercises.map((ex) {
-      return exerciseUpdates[ex.name] ?? ex;
-    }).toList();
+    final updatedExercises = currentWorkout!.exercises
+      .map((ex) => exerciseUpdates[ex.name] ?? ex)
+      .toList();
+
+    // Check if any exercises were completed (UI validation before calling service)
+    final completedExercises = updatedExercises
+      .where((ex) => isExerciseCompleted(ex))
+      .toList();
+
+    if (completedExercises.isEmpty) {
+      _showSnackbar('No exercises completed. Please complete at least one exercise.');
+      return;
+    }
 
     final finalWorkout = WorkoutRoutine(
       targetArea: currentWorkout!.targetArea,
-      exercises: updatedExercises,
+      exercises: updatedExercises, // Pass all exercises; service will filter
     );
 
     try {
@@ -284,9 +315,9 @@ class _HomeScreenState extends State<HomeScreen> {
       await LocalDB.deleteIncompleteWorkout(today, currentWorkout!.targetArea);
       _showSnackbar('Workout saved! Great job!');
 
-      // Mark this target as completed today
+      // Mark this target as completed today (only completed exercises)
       setState(() {
-        completedWorkoutsToday[currentWorkout!.targetArea] = updatedExercises;
+        completedWorkoutsToday[currentWorkout!.targetArea] = completedExercises;
         cachedWorkouts.remove(currentWorkout!.targetArea); // Clear from cache
         currentWorkout = null;
         exerciseUpdates.clear();
@@ -673,7 +704,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Exercise list
         Expanded(
           child: ListView.builder(
-            controller: _scrollController,
+            controller: _scrollControllers[target],
             padding: EdgeInsets.only(top: 8),
             itemCount: workout.exercises.length + 1, // +1 for add button/card at end
             itemBuilder: (context, index) {
@@ -777,9 +808,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         });
                         // Scroll to bottom to show the add card
                         Future.delayed(Duration(milliseconds: 100), () {
-                          if (_scrollController.hasClients) {
-                            _scrollController.animateTo(
-                              _scrollController.position.maxScrollExtent,
+                          final scrollController = _scrollControllers[target];
+                          if (scrollController != null && scrollController.hasClients) {
+                            scrollController.animateTo(
+                              scrollController.position.maxScrollExtent,
                               duration: Duration(milliseconds: 300),
                               curve: Curves.easeOut,
                             );
@@ -857,7 +889,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (isCoreCompleted && completedCoreWorkoutToday != null) ...[
               // Completion message
               buildCompletionMessage(
-                title: 'Core workout completed!',
+                title: 'Core completed!',
                 onUndo: _undoCoreCompletion,
                 margin: const EdgeInsets.only(bottom: 16),
               ),
@@ -1160,19 +1192,19 @@ class _HomeScreenState extends State<HomeScreen> {
         items: [
           BottomNavigationBarItem(
             icon: Icon(Icons.fitness_center),
-            label: 'Upper',
+            label: muscleGroupShortName(MuscleGroup.upperBody),
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.directions_run),
-            label: 'Lower',
+            label: muscleGroupShortName(MuscleGroup.lowerBody),
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.accessibility_new),
-            label: 'Core',
+            label: muscleGroupShortName(MuscleGroup.core),
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.directions_bike),
-            label: 'Activities',
+            label: muscleGroupShortName(MuscleGroup.otherActivity),
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.history),
@@ -1288,7 +1320,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error adding attachment: $e'),
-            backgroundColor: Colors.red[700],
+            backgroundColor: ActionColors.error,
           ),
         );
       }
@@ -1420,7 +1452,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
                       ),
                       // Remove button
                       IconButton(
-                        icon: Icon(Icons.close, size: 18, color: Colors.red[400]),
+                        icon: Icon(Icons.close, size: 18, color: ActionColors.delete),
                         onPressed: () => _removeAttachment(index),
                         padding: EdgeInsets.all(4),
                         constraints: BoxConstraints(),

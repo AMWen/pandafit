@@ -172,7 +172,7 @@ class ExcelImportService {
               return false;
             }
             // Check core workouts
-            if (muscleGroup == MuscleGroup.core && item['isCoreWorkout'] == true) {
+            if (muscleGroup == MuscleGroup.core && item['isCore'] == true) {
               return false;
             }
           }

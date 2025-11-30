@@ -102,7 +102,7 @@ class OnboardingPage extends StatelessWidget {
               TextSpan(text: " or "),
               TextSpan(
                 text: "exclude",
-                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                style: TextStyle(color: ActionColors.error, fontWeight: FontWeight.bold),
               ),
               TextSpan(
                 text:

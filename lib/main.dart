@@ -107,9 +107,9 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
         textSelectionTheme: TextSelectionThemeData(
-          cursorColor: secondaryColor,
-          selectionColor: secondaryColor.withValues(alpha: 0.3),
-          selectionHandleColor: secondaryColor,
+          cursorColor: primaryColor,
+          selectionColor: primaryColor.withValues(alpha: 0.3),
+          selectionHandleColor: primaryColor,
         ),
       ),
       darkTheme: ThemeData(

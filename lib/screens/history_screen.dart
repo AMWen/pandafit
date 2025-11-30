@@ -1,16 +1,23 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../data/constants.dart';
 import '../data/models/exercise_model.dart';
 import '../data/models/core_exercise_model.dart';
 import '../data/models/activity_model.dart';
+import '../data/models/activity_attachment.dart';
 import '../data/models/history_models.dart';
 import '../data/services/localdb_service.dart';
 import '../data/services/excel_export_service.dart';
 import '../data/services/excel_import_service.dart';
+import '../data/services/attachment_service.dart';
+import '../data/services/workout_generator.dart';
+import '../data/services/core_workout_generator.dart';
+import '../data/services/activity_preferences_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
 import '../data/widgets/attachment_viewer.dart';
+import '../data/widgets/exercise_selection_dialog.dart';
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback? onDataImported;
@@ -18,23 +25,25 @@ class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, this.onDataImported});
 
   @override
-  HistoryScreenState createState() => HistoryScreenState();
+  State<HistoryScreen> createState() => HistoryScreenState();
 }
 
-class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  Map<DateTime, Set<MuscleGroup>> _workoutsByDate = {}; // Track workout types including activities
-  Map<DateTime, List<Activity>> _activitiesByDate = {}; // Track full activity details by date
+class HistoryScreenState extends State<HistoryScreen>
+    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   late TabController _tabController;
-  Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
-  Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
-  Map<String, List<Activity>> _activitiesHistory = {}; // Changed to Activity to include attachments
-  bool _isLoadingProgress = false;
-  final Set<String> _expandedExercises = {}; // Track which exercises show full history
-  static const int _defaultHistoryLimit = 10;
+  final Map<DateTime, List<String>> _workoutDates = {};
   DateTime _focusedDay = DateTime.now();
-  DateTime? _loadedRangeStart;
-  DateTime? _loadedRangeEnd;
-  final GlobalKey<PandaStreakWidgetState> _pandaStreakKey = GlobalKey<PandaStreakWidgetState>();
+  bool _isLoadingProgress = false;
+
+  // Progress data
+  final Map<String, List<ExerciseHistory>> _upperBodyHistory = {};
+  final Map<String, List<ExerciseHistory>> _lowerBodyHistory = {};
+  final Map<String, List<Activity>> _activitiesHistory = {};
+
+  // Calendar expansion state
+  final Set<String> _expandedExercises = {}; // Stores exercise names
+  static const int _defaultHistoryLimit = 10;
+  final GlobalKey<PandaStreakWidgetState> _streakKey = GlobalKey<PandaStreakWidgetState>();
 
   @override
   bool get wantKeepAlive => true;
@@ -43,188 +52,166 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _tabController.addListener(_onTabChanged);
-    // Don't load data immediately - wait for first build
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Load data on first show
     _loadWorkoutDates();
+    _loadProgressData();
   }
 
   @override
   void dispose() {
-    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
 
-  void _onTabChanged() {
-    if (_tabController.index > 0 && _upperBodyHistory.isEmpty && _lowerBodyHistory.isEmpty && _activitiesHistory.isEmpty && !_isLoadingProgress) {
-      _loadProgressData();
-    }
-  }
-
-  // Helper function to filter out core workouts and activities from exercise data
-  List<Exercise> _filterRegularExercises(List<dynamic> data) {
-    return data
-        .where((item) => item is! Map || (item['isCore'] != true && item['isActivity'] != true))
-        .map((item) => Exercise.fromJson(item))
-        .toList();
-  }
-
-  // Public method to refresh data (called when tab becomes visible)
   void refreshData() {
     _loadWorkoutDates();
-    _pandaStreakKey.currentState?.refresh();
-    // Always refresh progress data to handle additions, deletions, and undos
     _loadProgressData();
   }
 
-  Future<void> _loadWorkoutDates([DateTime? forMonth]) async {
+  Future<void> _loadWorkoutDates() async {
     final db = await LocalDB.database;
+    final logs = await db.query('workout_logs');
 
-    // Only load workouts within ±2 months of focused month to avoid memory issues
-    final referenceDate = forMonth ?? _focusedDay;
-    final startDate = DateTime(referenceDate.year, referenceDate.month - 2, 1);
-    final endDate = DateTime(referenceDate.year, referenceDate.month + 3, 0); // End of month +2
-
-    // Store the loaded range
-    _loadedRangeStart = startDate;
-    _loadedRangeEnd = endDate;
-
-    final logs = await db.query(
-      'workout_logs',
-      where: 'date >= ? AND date <= ?',
-      whereArgs: [
-        startDate.toIso8601String().substring(0, 10),
-        endDate.toIso8601String().substring(0, 10),
-      ],
-      orderBy: 'date DESC',
-    );
-
-    final workoutsByDate = <DateTime, Set<MuscleGroup>>{};
-    final activitiesByDate = <DateTime, List<Activity>>{};
+    final Map<DateTime, List<String>> dates = {};
 
     for (var log in logs) {
-      final dateStr = log['date'] as String;
-      final date = DateTime.parse(dateStr);
-      final cleanDate = DateTime(date.year, date.month, date.day);
+      try {
+        final dateStr = log['date'] as String;
+        final date = DateTime.parse(dateStr);
+        final dateOnly = DateTime(date.year, date.month, date.day);
 
-      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+        // Parse exercises to determine workout types
+        final List<String> workoutTypes = [];
+        final exercisesJson = jsonDecode(log['exercises'] as String) as List;
 
-      // Initialize set for this date if not exists
-      workoutsByDate.putIfAbsent(cleanDate, () => <MuscleGroup>{});
-      activitiesByDate.putIfAbsent(cleanDate, () => <Activity>[]);
+        for (var item in exercisesJson) {
+          if (item is Map) {
+            // Check for activities
+            if (item['isActivity'] == true) {
+              if (!workoutTypes.contains('Activity')) {
+                workoutTypes.add('Activity');
+              }
+            }
+            // Check for core workout
+            else if (item['isCore'] == true) {
+              if (!workoutTypes.contains('Core')) {
+                workoutTypes.add('Core');
+              }
+            }
+            // Check for upper/lower body
+            else if (item['muscleGroup'] != null) {
+              final muscleGroup = item['muscleGroup'] as String;
+              if (muscleGroup == 'Upper Body' && !workoutTypes.contains('Upper Body')) {
+                workoutTypes.add('Upper Body');
+              } else if (muscleGroup == 'Lower Body' && !workoutTypes.contains('Lower Body')) {
+                workoutTypes.add('Lower Body');
+              }
+            }
+          }
+        }
 
-      for (var item in exercisesJson) {
-        if (item is Map) {
-          if (item['isCore'] == true) {
-            // Core workout
-            workoutsByDate[cleanDate]!.add(MuscleGroup.core);
-          } else if (item['isActivity'] == true) {
-            // Activity - track the activities and mark as otherActivity type
-            final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
-            activitiesByDate[cleanDate]!.addAll(activities);
-            workoutsByDate[cleanDate]!.add(MuscleGroup.otherActivity);
-          } else {
-            // Regular exercise
-            final exercise = Exercise.fromJson(item as Map<String, dynamic>);
-            // Only count non-skipped exercises
-            if (!exercise.isSkipped) {
-              workoutsByDate[cleanDate]!.add(exercise.muscleGroup);
+        if (workoutTypes.isNotEmpty) {
+          dates[dateOnly] = workoutTypes;
+        }
+      } catch (e) {
+        // Skip invalid dates
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _workoutDates.clear();
+        _workoutDates.addAll(dates);
+      });
+    }
+  }
+
+  Future<void> _loadProgressData() async {
+    setState(() {
+      _isLoadingProgress = true;
+    });
+
+    try {
+      final db = await LocalDB.database;
+      final logs = await db.query('workout_logs', orderBy: 'date ASC');
+
+      // Clear existing data
+      _upperBodyHistory.clear();
+      _lowerBodyHistory.clear();
+      _activitiesHistory.clear();
+
+      // Process each workout log
+      for (var log in logs) {
+        final dateStr = log['date'] as String;
+        final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+
+        for (var item in exercisesJson) {
+          if (item is Map) {
+            // Handle exercises (upper/lower body)
+            if (item['muscleGroup'] != null) {
+              final exercise = Exercise.fromJson(Map<String, dynamic>.from(item));
+
+              if (exercise.muscleGroup == MuscleGroup.upperBody) {
+                final name = exercise.name;
+                if (!_upperBodyHistory.containsKey(name)) {
+                  _upperBodyHistory[name] = [];
+                }
+                _upperBodyHistory[name]!.add(ExerciseHistory(
+                  date: dateStr,
+                  weight: exercise.weight,
+                  completedSets: exercise.completedSets,
+                ));
+              } else if (exercise.muscleGroup == MuscleGroup.lowerBody) {
+                final name = exercise.name;
+                if (!_lowerBodyHistory.containsKey(name)) {
+                  _lowerBodyHistory[name] = [];
+                }
+                _lowerBodyHistory[name]!.add(ExerciseHistory(
+                  date: dateStr,
+                  weight: exercise.weight,
+                  completedSets: exercise.completedSets,
+                ));
+              }
+            }
+            // Handle activities
+            else if (item['isActivity'] == true) {
+              final activities = (item['activities'] as List);
+              for (var activityData in activities) {
+                final activity = Activity.fromMap(activityData);
+                final activityWithDate = Activity(
+                  name: activity.name,
+                  durationMinutes: activity.durationMinutes,
+                  notes: activity.notes,
+                  date: DateTime.parse(dateStr),
+                  attachments: activity.attachments,
+                );
+                if (!_activitiesHistory.containsKey(activity.name)) {
+                  _activitiesHistory[activity.name] = [];
+                }
+                _activitiesHistory[activity.name]!.add(activityWithDate);
+              }
             }
           }
         }
       }
+    } catch (e) {
+      // Handle error silently
     }
 
-    setState(() {
-      _workoutsByDate = workoutsByDate;
-      _activitiesByDate = activitiesByDate;
-    });
-  }
-
-  Future<void> _loadProgressData() async {
-    setState(() => _isLoadingProgress = true);
-
-    final db = await LocalDB.database;
-    final logs = await db.query('workout_logs', orderBy: 'date DESC');
-
-    Map<String, List<ExerciseHistory>> upperHistory = {};
-    Map<String, List<ExerciseHistory>> lowerHistory = {};
-    Map<String, List<Activity>> activitiesHistory = {}; // Changed to Activity
-
-    for (var log in logs) {
-      final dateStr = log['date'] as String;
-      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
-
-      // Filter out core workouts (they have isCore: true)
-      final regularExercises = _filterRegularExercises(exercisesJson);
-
-      for (var exercise in regularExercises) {
-        // Use utility function to check if exercise was actually completed
-        if (isExerciseCompleted(exercise)) {
-          final entry = ExerciseHistory(
-            date: dateStr,
-            weight: exercise.weight!,
-            completedSets: exercise.completedSets,
-          );
-
-          if (exercise.muscleGroup == MuscleGroup.upperBody) {
-            upperHistory.putIfAbsent(exercise.name, () => []).add(entry);
-          } else {
-            lowerHistory.putIfAbsent(exercise.name, () => []).add(entry);
-          }
-        }
-      }
-
-      // Load activities (store full Activity object to preserve attachments)
-      for (var item in exercisesJson) {
-        if (item is Map && item['isActivity'] == true) {
-          final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
-          for (var activity in activities) {
-            // Add date to activity for display purposes
-            final activityWithDate = Activity(
-              name: activity.name,
-              durationMinutes: activity.durationMinutes,
-              notes: activity.notes,
-              date: DateTime.parse(dateStr),
-              attachments: activity.attachments,
-            );
-            activitiesHistory.putIfAbsent(activity.name, () => []).add(activityWithDate);
-          }
-        }
-      }
+    if (mounted) {
+      setState(() {
+        _isLoadingProgress = false;
+      });
     }
-
-    setState(() {
-      _upperBodyHistory = upperHistory;
-      _lowerBodyHistory = lowerHistory;
-      _activitiesHistory = activitiesHistory;
-      _isLoadingProgress = false;
-    });
   }
 
-  // Get workout types for a specific day
-  Set<MuscleGroup> _getWorkoutsForDay(DateTime day) {
-    final key = DateTime(day.year, day.month, day.day);
-    return _workoutsByDate[key] ?? {};
+  List<String> _getWorkoutsForDay(DateTime day) {
+    final dateOnly = DateTime(day.year, day.month, day.day);
+    return _workoutDates[dateOnly] ?? [];
   }
 
-  // Get activities for a specific day
-  List<Activity> _getActivitiesForDay(DateTime day) {
-    final key = DateTime(day.year, day.month, day.day);
-    return _activitiesByDate[key] ?? [];
-  }
-
-  // Event loader for calendar - returns non-empty list if workouts or activities exist
   List<String> _getEventsForDay(DateTime day) {
     final workouts = _getWorkoutsForDay(day);
-    final activities = _getActivitiesForDay(day);
-    return (workouts.isEmpty && activities.isEmpty) ? [] : ['Workout'];
+    return workouts.isEmpty ? [] : ['Workout'];
   }
 
   Future<void> _showRoutineForDate(DateTime date) async {
@@ -233,21 +220,30 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     final activities = await LocalDB.getActivitiesForDate(date);
     final dateString = date.toIso8601String().substring(0, 10);
 
-    if (workoutsByGroup.isEmpty && coreWorkout == null && activities == null && mounted) {
-      showErrorSnackbar(context, 'No workout found for this date');
-      return;
-    }
-
     if (mounted) {
-      showDialog(
+      final result = await showDialog<bool>(
         context: context,
         builder: (_) => _WorkoutHistoryDialog(
           date: dateString,
           workoutsByGroup: workoutsByGroup,
           coreWorkout: coreWorkout,
           activities: activities,
+          onWorkoutChanged: () {
+            // Refresh calendar dots immediately when workout changes
+            _loadWorkoutDates();
+            // Refresh streak display
+            _streakKey.currentState?.refresh();
+            // Also refresh home screen to sync completed workouts
+            widget.onDataImported?.call();
+          },
         ),
       );
+
+      // Refresh data if changes were saved
+      if (result == true) {
+        refreshData();
+        // Note: Home screen refresh already called via onWorkoutChanged callback
+      }
     }
   }
 
@@ -273,25 +269,9 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           indicatorColor: secondaryColor,
           tabs: [
             Tab(text: 'Calendar'),
-            Tab(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Upper '),
-                  Icon(Icons.person, size: 16),
-                ],
-              ),
-            ),
-            Tab(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Lower '),
-                  Icon(Icons.person, size: 16),
-                ],
-              ),
-            ),
-            Tab(text: 'Activities'),
+            Tab(text: muscleGroupShortName(MuscleGroup.upperBody)),
+            Tab(text: muscleGroupShortName(MuscleGroup.lowerBody)),
+            Tab(text: muscleGroupShortName(MuscleGroup.otherActivity)),
           ],
         ),
         actions: [
@@ -307,6 +287,8 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                   showErrorSnackbar(context, result);
                   // Refresh data after import
                   refreshData();
+                  // Refresh streak display
+                  _streakKey.currentState?.refresh();
                   // Notify parent to refresh home screen data
                   widget.onDataImported?.call();
                 }
@@ -347,7 +329,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         await _loadWorkoutDates();
       },
       child: SingleChildScrollView(
-        physics: AlwaysScrollableScrollPhysics(), // Allows pull-to-refresh even when content doesn't scroll
+        physics: AlwaysScrollableScrollPhysics(),
         child: Column(
           children: [
             SizedBox(height: 16),
@@ -357,37 +339,60 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           firstDay: DateTime.utc(2025, 1, 1),
           lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: _focusedDay,
+          selectedDayPredicate: (day) => false,
           eventLoader: _getEventsForDay,
           onPageChanged: (focusedDay) {
-            // Check if the new month is outside our loaded range
-            final needsReload = _loadedRangeStart == null ||
-                _loadedRangeEnd == null ||
-                focusedDay.isBefore(_loadedRangeStart!) ||
-                focusedDay.isAfter(_loadedRangeEnd!);
-
             setState(() {
               _focusedDay = focusedDay;
             });
-
-            // Reload data if we've navigated outside the loaded range
-            if (needsReload) {
-              _loadWorkoutDates(focusedDay);
-            }
           },
+          calendarStyle: CalendarStyle(
+            markerDecoration: BoxDecoration(
+              color: primaryColor,
+              shape: BoxShape.circle,
+            ),
+            todayDecoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            selectedDecoration: BoxDecoration(
+              color: primaryColor,
+              shape: BoxShape.circle,
+            ),
+          ),
           calendarBuilders: CalendarBuilders(
             markerBuilder: (context, date, events) {
-              final workouts = _getWorkoutsForDay(date);
+              if (events.isEmpty) return null;
 
-              if (workouts.isEmpty) return null;
+              // Get workout types for the day
+              final workoutTypes = _getWorkoutsForDay(date);
+              if (workoutTypes.isEmpty) return null;
 
-              // Create a dot for each workout type
-              final dots = workouts.map((muscleGroup) {
+              // Color mapping for different workout types using WorkoutColors
+              final Map<String, Color> colorMap = {
+                'Upper Body': WorkoutColors.upperBody,
+                'Lower Body': WorkoutColors.lowerBody,
+                'Core': WorkoutColors.core,
+                'Activity': WorkoutColors.otherActivity,
+              };
+
+              // Sort workout types in consistent order: Upper, Lower, Core, Activities
+              final sortOrder = ['Upper Body', 'Lower Body', 'Core', 'Activity'];
+              final sortedWorkoutTypes = workoutTypes.toList()
+                ..sort((a, b) {
+                  final indexA = sortOrder.indexOf(a);
+                  final indexB = sortOrder.indexOf(b);
+                  return indexA.compareTo(indexB);
+                });
+
+              // Create dots for each workout type (max 4)
+              final dots = sortedWorkoutTypes.take(4).map((type) {
                 return Container(
                   width: 6,
                   height: 6,
                   margin: EdgeInsets.symmetric(horizontal: 0.5),
                   decoration: BoxDecoration(
-                    color: WorkoutColors.forMuscleGroup(muscleGroup),
+                    color: colorMap[type] ?? primaryColor,
                     shape: BoxShape.circle,
                   ),
                 );
@@ -415,9 +420,10 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           _buildColorLegend(),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: PandaStreakWidget(key: _pandaStreakKey),
+            child: PandaStreakWidget(key: _streakKey),
           ),
-          ],
+          SizedBox(height: 24),
+        ],
         ),
       ),
     );
@@ -469,22 +475,58 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     if (historyMap.isEmpty) {
       return Center(
         child: Text(
-          'No workout history yet.\nStart logging workouts to see progress!',
+          'No exercise history yet.\nComplete workouts to see progress!',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 16, color: Colors.grey),
         ),
       );
     }
 
-    final exercises = historyMap.keys.toList()..sort();
+    final exerciseNames = historyMap.keys.toList()..sort();
 
     return RefreshIndicator(
       onRefresh: _loadProgressData,
       child: ListView.builder(
         padding: EdgeInsets.all(16),
-        itemCount: exercises.length,
+        itemCount: exerciseNames.length + 1, // +1 for info message
         itemBuilder: (context, index) {
-          final exerciseName = exercises[index];
+          // Show info message as first item
+          if (index == 0) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 14, color: Colors.grey[600]),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: 'Blue badge',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          TextSpan(text: ' shows PR (best weight × reps)'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Show exercise cards
+          final exerciseIndex = index - 1;
+          final exerciseName = exerciseNames[exerciseIndex];
           final history = historyMap[exerciseName]!;
           return _buildExerciseCard(exerciseName, history);
         },
@@ -506,6 +548,21 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         ? sortedHistory
         : sortedHistory.take(_defaultHistoryLimit).toList();
 
+    // Calculate best set (max weight × reps)
+    double bestVolume = 0;
+    String bestSetDisplay = '';
+    for (var entry in sortedHistory) {
+      if (entry.weight != null) {
+        for (var reps in entry.completedSets) {
+          double volume = entry.weight! * reps;
+          if (volume > bestVolume) {
+            bestVolume = volume;
+            bestSetDisplay = '${formatWeight(entry.weight!)}lb × $reps';
+          }
+        }
+      }
+    }
+
     return Card(
       margin: EdgeInsets.only(bottom: 4),
       elevation: 2,
@@ -514,62 +571,72 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              exerciseName,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    exerciseName,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (bestSetDisplay.isNotEmpty)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: primaryColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      bestSetDisplay,
+                      style: TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+              ],
             ),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
                 headingRowHeight: 32,
                 dataRowMinHeight: 28,
-                dataRowMaxHeight: 35,
-                columnSpacing: 45,
+                dataRowMaxHeight: 40,
+                columnSpacing: 35,
                 horizontalMargin: 0,
                 dividerThickness: 0,
                 columns: [
                   DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Weight', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('Sets x Reps', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Sets × Reps', style: TextStyle(fontWeight: FontWeight.bold))),
                 ],
-                rows: displayedHistory.map((record) {
-                  final dateStr = _formatDate(record.date);
-                  final weightStr = '${formatWeight(record.weight ?? 0)}lb';
-                  final setsStr = record.completedSets.map((reps) => reps.toString()).join(', ');
-
+                rows: displayedHistory.map((entry) {
+                  final sets = entry.completedSets.join(', ');
                   return DataRow(cells: [
-                    DataCell(Text(dateStr)),
-                    DataCell(Text(weightStr)),
-                    DataCell(Text(setsStr, style: TextStyle(fontSize: 13))),
+                    DataCell(Text(_formatDate(entry.date))),
+                    DataCell(Text(entry.weight != null ? '${formatWeight(entry.weight!)}lb' : '-')),
+                    DataCell(Text(sets.isNotEmpty ? sets : '-')),
                   ]);
                 }).toList(),
               ),
             ),
-            // Show "Load More" or "Show Less" button if needed
+            // Show/Hide more button
             if (hasMoreEntries)
-              Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Center(
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedExercises.remove(exerciseName);
-                        } else {
-                          _expandedExercises.add(exerciseName);
-                        }
-                      });
-                    },
-                    icon: Icon(
-                      isExpanded ? Icons.expand_less : Icons.expand_more,
-                      size: 18,
-                    ),
-                    label: Text(
-                      isExpanded
-                          ? 'Show Less'
-                          : 'Load All (${sortedHistory.length} total)',
-                      style: TextStyle(fontSize: 13),
-                    ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedExercises.remove(exerciseName);
+                      } else {
+                        _expandedExercises.add(exerciseName);
+                      }
+                    });
+                  },
+                  child: Text(
+                    isExpanded
+                        ? 'Show less'
+                        : 'Show all (${sortedHistory.length} entries)',
+                    style: TextStyle(color: primaryColor),
                   ),
                 ),
               ),
@@ -612,7 +679,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                   SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      'May need to scroll to right to see attachments • Tap notes to expand',
+                      'Scroll right for attachments (if needed) • Tap notes to expand',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey[600],
@@ -698,31 +765,25 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
                 }).toList(),
               ),
             ),
-            // Show "Load More" or "Show Less" button if needed
+            // Show/Hide more button
             if (hasMoreEntries)
-              Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Center(
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedExercises.remove(activityName);
-                        } else {
-                          _expandedExercises.add(activityName);
-                        }
-                      });
-                    },
-                    icon: Icon(
-                      isExpanded ? Icons.expand_less : Icons.expand_more,
-                      size: 18,
-                    ),
-                    label: Text(
-                      isExpanded
-                          ? 'Show Less'
-                          : 'Load All (${sortedHistory.length} total)',
-                      style: TextStyle(fontSize: 13),
-                    ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedExercises.remove(activityName);
+                      } else {
+                        _expandedExercises.add(activityName);
+                      }
+                    });
+                  },
+                  child: Text(
+                    isExpanded
+                        ? 'Show less'
+                        : 'Show all (${sortedHistory.length} entries)',
+                    style: TextStyle(color: primaryColor),
                   ),
                 ),
               ),
@@ -732,12 +793,22 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
     );
   }
 
+  String _formatDate(String isoDate) {
+    try {
+      final date = DateTime.parse(isoDate);
+      return '${date.month}/${date.day}';
+    } catch (e) {
+      return isoDate;
+    }
+  }
+
   Widget _buildAttachmentsCell(Activity activity) {
     if (activity.attachments == null || activity.attachments!.isEmpty) {
       return SizedBox.shrink();
     }
 
-    final attachmentCount = activity.attachments!.length;
+    final attachments = activity.attachments!;
+    final firstAttachment = attachments.first;
 
     return InkWell(
       onTap: () {
@@ -745,7 +816,7 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
           context,
           MaterialPageRoute(
             builder: (context) => AttachmentViewer(
-              attachments: activity.attachments!,
+              attachments: attachments,
               activityName: activity.name,
             ),
           ),
@@ -754,35 +825,30 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Show first thumbnail
           Container(
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(2),
+              color: Colors.white,
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(2),
               child: Image.memory(
-                base64Decode(activity.attachments!.first.thumbnailBase64),
+                base64Decode(firstAttachment.thumbnailBase64),
                 fit: BoxFit.cover,
               ),
             ),
           ),
-          if (attachmentCount > 1) ...[
+          if (attachments.length > 1) ...[
             SizedBox(width: 4),
             Text(
-              '+${attachmentCount - 1}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: primaryColor,
-              ),
+              '+${attachments.length - 1}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
           SizedBox(width: 4),
-          Icon(Icons.open_in_new, size: 14, color: Colors.grey[600]),
+          Icon(Icons.open_in_new, size: 12, color: Colors.grey[600]),
         ],
       ),
     );
@@ -793,32 +859,34 @@ class HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderS
       return SizedBox.shrink();
     }
 
-    // Count actual newlines to determine number of lines
-    final lineCount = '\n'.allMatches(notes).length + 1;
-    final maxLines = lineCount.clamp(1, 2);
+    // Truncate notes if too long
+    final displayText = notes.length > 30 ? '${notes.substring(0, 30)}...' : notes;
 
-    return Tooltip(
-      message: notes,
-      triggerMode: TooltipTriggerMode.tap,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 120),
-        child: Text(
-          notes,
-          style: TextStyle(fontSize: 13),
-          overflow: TextOverflow.ellipsis,
-          maxLines: maxLines,
+    return InkWell(
+      onTap: () {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Notes'),
+            content: Text(notes),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Close'),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Text(
+        displayText,
+        style: TextStyle(
+          color: Colors.grey[700],
+          fontSize: 12,
+          decoration: TextDecoration.underline,
         ),
       ),
     );
-  }
-
-  String _formatDate(String dateStr) {
-    try {
-      final date = DateTime.parse(dateStr);
-      return '${date.month}/${date.day}/${date.year.toString().substring(2)}';
-    } catch (e) {
-      return dateStr;
-    }
   }
 }
 
@@ -828,12 +896,14 @@ class _WorkoutHistoryDialog extends StatefulWidget {
   final Map<MuscleGroup, List<Exercise>> workoutsByGroup;
   final CoreWorkoutRoutine? coreWorkout;
   final ActivityRoutine? activities;
+  final VoidCallback? onWorkoutChanged;
 
   const _WorkoutHistoryDialog({
     required this.date,
     required this.workoutsByGroup,
     this.coreWorkout,
     this.activities,
+    this.onWorkoutChanged,
   });
 
   @override
@@ -841,16 +911,53 @@ class _WorkoutHistoryDialog extends StatefulWidget {
 }
 
 class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with SingleTickerProviderStateMixin {
+  // Single source of truth for tab ordering
+  static const List<MuscleGroup> _tabOrder = [
+    MuscleGroup.upperBody,
+    MuscleGroup.lowerBody,
+    MuscleGroup.core,
+    MuscleGroup.otherActivity,
+  ];
+
   late TabController _tabController;
   late int _totalTabs;
+  bool _isEditing = false;
+
+  // Editable data
+  late Map<MuscleGroup, List<Exercise>> _editableWorkouts;
+  late CoreWorkoutRoutine? _editableCoreWorkout;
+  late List<Activity> _editableActivities;
+
+  // Current saved state (what's actually in the database after any saves from view mode)
+  late Map<MuscleGroup, List<Exercise>> _currentSavedWorkouts;
+  late CoreWorkoutRoutine? _currentSavedCoreWorkout;
+  late List<Activity> _currentSavedActivities;
 
   @override
   void initState() {
     super.initState();
-    _totalTabs = widget.workoutsByGroup.length +
-                 (widget.coreWorkout != null ? 1 : 0) +
-                 (widget.activities != null ? 1 : 0);
+    // Always show all 4 tabs in consistent order
+    _totalTabs = 4;
     _tabController = TabController(length: _totalTabs, vsync: this);
+
+    // Add listener to rebuild when tab changes (updates Add/Edit button)
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
+
+    // Initialize editable copies and saved state
+    _editableWorkouts = Map.from(widget.workoutsByGroup.map((key, value) =>
+      MapEntry(key, value.map((e) => e.copyWith()).toList())));
+    _editableCoreWorkout = widget.coreWorkout;
+    _editableActivities = widget.activities?.activities.map((a) => a.copyWith()).toList() ?? [];
+
+    // Initialize current saved state to match initial data
+    _currentSavedWorkouts = Map.from(widget.workoutsByGroup.map((key, value) =>
+      MapEntry(key, value.map((e) => e.copyWith()).toList())));
+    _currentSavedCoreWorkout = widget.coreWorkout;
+    _currentSavedActivities = widget.activities?.activities.map((a) => a.copyWith()).toList() ?? [];
   }
 
   @override
@@ -859,36 +966,174 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     super.dispose();
   }
 
-  Widget _buildExerciseList(List<Exercise> exercises) {
+  Widget _buildEmptyState(String message, {MuscleGroup? muscleGroup}) {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+            // Show "Add Workout" button in edit mode for upper/lower/core
+            if (_isEditing && muscleGroup != null && muscleGroup != MuscleGroup.otherActivity) ...[
+              SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () => _addWorkoutForCurrentTab(),
+                icon: Icon(Icons.add, size: 18),
+                label: Text('Add Workout'),
+                style: compactButtonStyle,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _hasContent(MuscleGroup muscleGroup) {
+    if (muscleGroup == MuscleGroup.core) {
+      return _editableCoreWorkout != null;
+    } else if (muscleGroup == MuscleGroup.otherActivity) {
+      return _editableActivities.isNotEmpty;
+    } else {
+      return _editableWorkouts.containsKey(muscleGroup);
+    }
+  }
+
+  Widget _buildExerciseList(List<Exercise> exercises, MuscleGroup muscleGroup) {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: exercises.map((exercise) {
-          return Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  exercise.name,
-                  style: TextStyles.mediumText,
-                ),
-                SizedBox(height: 4),
-                if (exercise.weight != null && exercise.completedSets.isNotEmpty)
-                  Text(
-                    exercise.completedSets.map((r) => '${formatWeight(exercise.weight!)}lb x $r').join(', '),
-                    style: TextStyles.normalText,
-                  )
-                else
-                  Text(
-                    '$numSets sets of ${exercise.reps} reps (not completed)',
-                    style: TextStyle(color: Colors.grey),
+        children: [
+          ...exercises.asMap().entries.map((entry) {
+            final index = entry.key;
+            final exercise = entry.value;
+
+            return Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          exercise.name,
+                          style: TextStyles.mediumText,
+                        ),
+                      ),
+                      if (_isEditing)
+                        IconButton(
+                          icon: Icon(Icons.delete_outline, color: ActionColors.delete),
+                          onPressed: () {
+                            setState(() {
+                              _editableWorkouts[muscleGroup]!.removeAt(index);
+                            });
+                          },
+                          tooltip: 'Delete exercise',
+                          padding: EdgeInsets.all(4),
+                        ),
+                    ],
                   ),
+                  SizedBox(height: 4),
+                if (_isEditing) ...[
+                  // Editable weight (matching home screen style)
+                  Row(
+                    children: [
+                      Text('Weight: ', style: TextStyles.normalText),
+                      SizedBox(
+                        width: 80,
+                        child: TextField(
+                          controller: TextEditingController(text: exercise.weight?.toString() ?? ''),
+                          keyboardType: TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                          decoration: InputDecoration(
+                            hintText: '0',
+                            suffixText: 'lbs',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          ),
+                          onChanged: (value) {
+                            final weight = double.tryParse(value);
+                            _editableWorkouts[muscleGroup]![index] = exercise.copyWith(weight: weight);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 12),
+                  // Editable sets (matching home screen style with Wrap)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: List.generate(exercise.completedSets.length, (setIndex) {
+                      return SizedBox(
+                        width: 75,
+                        child: TextField(
+                          controller: TextEditingController(text: exercise.completedSets[setIndex].toString()),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          decoration: InputDecoration(
+                            labelText: 'Set ${setIndex + 1}',
+                            hintText: 'reps',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            border: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.grey[400]!),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.grey[400]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(width: 2),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            final reps = int.tryParse(value) ?? 0;
+                            final newSets = List<int>.from(exercise.completedSets);
+                            newSets[setIndex] = reps;
+                            _editableWorkouts[muscleGroup]![index] = exercise.copyWith(completedSets: newSets);
+                          },
+                        ),
+                      );
+                    }),
+                  ),
+                  SizedBox(height: 8),
+                ] else ...[
+                  // View mode
+                  if (exercise.weight != null && exercise.completedSets.isNotEmpty)
+                    Text(
+                      exercise.completedSets.map((r) => '${formatWeight(exercise.weight!)}lb x $r').join(', '),
+                      style: TextStyles.normalText,
+                    )
+                  else
+                    Text(
+                      '$numSets sets of ${exercise.reps} reps (not completed)',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                ],
               ],
             ),
           );
-        }).toList(),
+          }),
+          // Add Exercise button (in edit mode)
+          if (_isEditing) ...[
+            SizedBox(height: 12),
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: () => _showAddExerciseDialog(muscleGroup),
+                icon: Icon(Icons.add, size: 18),
+                label: Text('Add Exercise'),
+                style: compactButtonStyle,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -929,62 +1174,268 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     );
   }
 
-  Widget _buildActivitiesList(ActivityRoutine activities) {
+  Widget _buildActivitiesContent() {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: activities.activities.map((activity) {
-          return Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  activity.name,
-                  style: TextStyles.mediumText,
-                ),
-                SizedBox(height: 4),
-                Text(
-                  '${activity.durationMinutes} minutes',
-                  style: TextStyles.normalText.copyWith(color: Colors.grey),
-                ),
-                if (activity.notes != null && activity.notes!.isNotEmpty) ...[
-                  SizedBox(height: 4),
-                  Text(
-                    activity.notes!,
-                    style: TextStyles.normalText.copyWith(
-                      color: Colors.grey[600],
-                      fontSize: 12,
-                    ),
+        children: [
+          // Show empty state if no activities and not editing
+          if (_editableActivities.isEmpty && !_isEditing) ...[
+            _buildEmptyState('No activities'),
+          ],
+          // Show activities list
+          ..._editableActivities.asMap().entries.map((entry) {
+            final index = entry.key;
+            final activity = entry.value;
+
+            return Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          activity.name,
+                          style: TextStyles.mediumText,
+                        ),
+                      ),
+                      if (_isEditing)
+                        IconButton(
+                          icon: Icon(Icons.delete_outline, color: ActionColors.delete),
+                          onPressed: () {
+                            setState(() {
+                              _editableActivities.removeAt(index);
+                            });
+                          },
+                          tooltip: 'Delete activity',
+                          padding: EdgeInsets.all(4),
+                        ),
+                    ],
                   ),
+                  SizedBox(height: 8),
+                  if (_isEditing) ...[
+                  // Editable duration
+                  Row(
+                    children: [
+                      Text('Duration: ', style: TextStyles.normalText),
+                      SizedBox(
+                        width: 80,
+                        child: TextField(
+                          controller: TextEditingController(text: activity.durationMinutes.toString()),
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            suffixText: 'min',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (value) {
+                            final duration = int.tryParse(value) ?? activity.durationMinutes;
+                            _editableActivities[index] = activity.copyWith(durationMinutes: duration);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  // Editable notes
+                  TextField(
+                    controller: TextEditingController(text: activity.notes ?? ''),
+                    decoration: InputDecoration(
+                      labelText: 'Notes',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
+                    onChanged: (value) {
+                      _editableActivities[index] = activity.copyWith(notes: value.isEmpty ? null : value);
+                    },
+                  ),
+                  SizedBox(height: 8),
+                  // Attachments
+                  Row(
+                    children: [
+                      Text('Attachments:', style: TextStyles.normalText),
+                      SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          try {
+                            final attachment = await AttachmentService.pickAttachment();
+                            if (attachment != null) {
+                              setState(() {
+                                final newAttachments = List<ActivityAttachment>.from(activity.attachments ?? []);
+                                newAttachments.add(attachment);
+                                _editableActivities[index] = activity.copyWith(attachments: newAttachments);
+                              });
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error adding attachment: $e'),
+                                  backgroundColor: ActionColors.error,
+                                  duration: Duration(milliseconds: 1500),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        icon: Icon(Icons.attach_file, size: 16),
+                        label: Text('Add'),
+                        style: smallButtonStyle,
+                      ),
+                    ],
+                  ),
+                  if (activity.attachments != null && activity.attachments!.isNotEmpty) ...[
+                    SizedBox(height: 4),
+                    ...activity.attachments!.asMap().entries.map((attachEntry) {
+                      final attIndex = attachEntry.key;
+                      final attachment = attachEntry.value;
+                      return Container(
+                        margin: EdgeInsets.only(bottom: 4),
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(borderRadius: BorderRadius.circular(2), color: Colors.white),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: Image.memory(base64Decode(attachment.thumbnailBase64), fit: BoxFit.cover),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(attachment.fileName, style: TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.delete, size: 16, color: ActionColors.delete),
+                              onPressed: () {
+                                setState(() {
+                                  final newAttachments = List<ActivityAttachment>.from(activity.attachments!);
+                                  newAttachments.removeAt(attIndex);
+                                  _editableActivities[index] = activity.copyWith(
+                                    attachments: newAttachments.isEmpty ? null : newAttachments,
+                                  );
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ] else ...[
+                  // View mode
+                  Text(
+                    '${activity.durationMinutes} minutes',
+                    style: TextStyles.normalText.copyWith(color: Colors.grey),
+                  ),
+                  if (activity.notes != null && activity.notes!.isNotEmpty) ...[
+                    SizedBox(height: 4),
+                    Text(
+                      activity.notes!,
+                      style: TextStyles.normalText.copyWith(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  if (activity.attachments != null && activity.attachments!.isNotEmpty) ...[
+                    SizedBox(height: 4),
+                    InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => AttachmentViewer(
+                              attachments: activity.attachments!,
+                              activityName: activity.name,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.attach_file, size: 14, color: Colors.grey[600]),
+                          SizedBox(width: 4),
+                          Text(
+                            '${activity.attachments!.length} attachment${activity.attachments!.length > 1 ? 's' : ''}',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ],
+              ),
+            );
+          }),
+          // Add Activity button (in edit mode)
+          if (_isEditing) ...[
+            SizedBox(height: 12),
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: _showAddActivityDialogForHistory,
+                icon: Icon(Icons.add, size: 18),
+                label: Text('Add Activity'),
+                style: compactButtonStyle,
+              ),
             ),
-          );
-        }).toList(),
+          ],
+        ],
       ),
     );
   }
 
+  Future<void> _showAddActivityDialogForHistory() async {
+    final result = await showDialog<Activity>(
+      context: context,
+      builder: (context) => _AddActivityDialog(),
+    );
+
+    if (result != null) {
+      setState(() {
+        _editableActivities.add(result);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final muscleGroups = widget.workoutsByGroup.keys.toList();
     final hasMultipleTabs = _totalTabs > 1;
 
-    // Build tab labels
-    final tabLabels = [
-      ...muscleGroups.map((group) => muscleGroupToString(group)),
-      if (widget.coreWorkout != null) muscleGroupToString(MuscleGroup.core),
-      if (widget.activities != null) muscleGroupToString(MuscleGroup.otherActivity),
-    ];
+    // Always show all 4 tabs in consistent order using source of truth
+    final tabLabels = _tabOrder.map((mg) => muscleGroupShortName(mg)).toList();
 
-    // Build tab content
-    final tabContent = [
-      ...muscleGroups.map((group) => _buildExerciseList(widget.workoutsByGroup[group]!)),
-      if (widget.coreWorkout != null) _buildCoreWorkoutList(widget.coreWorkout!),
-      if (widget.activities != null) _buildActivitiesList(widget.activities!),
-    ];
+    final tabContent = _tabOrder.map((muscleGroup) {
+      if (muscleGroup == MuscleGroup.core) {
+        return _editableCoreWorkout != null
+            ? _buildCoreWorkoutList(_editableCoreWorkout!)
+            : _buildEmptyState('No core workout', muscleGroup: muscleGroup);
+      } else if (muscleGroup == MuscleGroup.otherActivity) {
+        // Always show activities list (includes Add button in edit mode)
+        return _buildActivitiesContent();
+      } else {
+        return _editableWorkouts.containsKey(muscleGroup)
+            ? _buildExerciseList(_editableWorkouts[muscleGroup]!, muscleGroup)
+            : _buildEmptyState('No ${muscleGroupToString(muscleGroup).toLowerCase()} workout', muscleGroup: muscleGroup);
+      }
+    }).toList();
 
     return AlertDialog(
       title: Column(
@@ -996,10 +1447,23 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
             SizedBox(height: 12),
             TabBar(
               controller: _tabController,
-              labelColor: primaryColor,
-              unselectedLabelColor: Colors.grey,
               indicatorColor: primaryColor,
-              tabs: tabLabels.map((label) => Tab(text: label)).toList(),
+              labelPadding: EdgeInsets.symmetric(horizontal: 4),
+              tabs: _tabOrder.asMap().entries.map((entry) {
+                final index = entry.key;
+                final muscleGroup = entry.value;
+                final hasContent = _hasContent(muscleGroup);
+
+                return Tab(
+                  child: Text(
+                    tabLabels[index],
+                    style: TextStyle(
+                      color: hasContent ? WorkoutColors.forMuscleGroup(muscleGroup) : Colors.grey,
+                      fontWeight: hasContent ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ] else ...[
             SizedBox(height: 4),
@@ -1027,9 +1491,735 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
             : tabContent.first,
       ),
       actions: [
-        FilledButton(
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!_isEditing) ...[
+              // Show appropriate button based on current tab
+              Builder(
+                builder: (context) {
+                  final currentTabIndex = _tabController.index;
+                  final currentMuscleGroup = _tabOrder[currentTabIndex];
+                  final hasContent = _hasContent(currentMuscleGroup);
+                  final isOtherActivities = currentMuscleGroup == MuscleGroup.otherActivity;
+
+                  // Other Activities tab shows Delete icon and Edit button if has content
+                  if (isOtherActivities) {
+                    if (!hasContent) {
+                      // No content - just show Edit button
+                      return OutlinedButton(
+                        onPressed: () => setState(() => _isEditing = true),
+                        style: primaryButtonStyle,
+                        child: Text('Edit', style: TextStyle(fontSize: 16)),
+                      );
+                    } else {
+                      // Has content - show Delete icon and Edit button
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: _deleteCurrentWorkout,
+                            icon: Icon(Icons.delete, color: ActionColors.delete),
+                            tooltip: 'Delete workout',
+                            padding: EdgeInsets.all(8),
+                          ),
+                          SizedBox(width: 8),
+                          OutlinedButton(
+                            onPressed: () => setState(() => _isEditing = true),
+                            style: primaryButtonStyle,
+                            child: Text('Edit', style: TextStyle(fontSize: 16)),
+                          ),
+                        ],
+                      );
+                    }
+                  }
+
+                  // Core tab with content shows Delete icon (can't edit core)
+                  if (currentMuscleGroup == MuscleGroup.core && hasContent) {
+                    return IconButton(
+                      onPressed: _deleteCurrentWorkout,
+                      icon: Icon(Icons.delete, color: ActionColors.delete),
+                      tooltip: 'Delete workout',
+                      padding: EdgeInsets.all(8),
+                    );
+                  }
+
+                  // For other tabs, show Add if no content, Edit+Delete if has content
+                  if (!hasContent) {
+                    return OutlinedButton(
+                      onPressed: () => _addWorkoutForCurrentTab(),
+                      style: primaryButtonStyle,
+                      child: Text('Add', style: TextStyle(fontSize: 16)),
+                    );
+                  } else {
+                    // Show both Delete and Edit buttons
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: _deleteCurrentWorkout,
+                          icon: Icon(Icons.delete, color: ActionColors.delete),
+                          tooltip: 'Delete workout',
+                          padding: EdgeInsets.all(8),
+                        ),
+                        SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: () => setState(() => _isEditing = true),
+                          style: primaryButtonStyle,
+                          child: Text('Edit', style: TextStyle(fontSize: 16)),
+                        ),
+                      ],
+                    );
+                  }
+                },
+              ),
+              SizedBox(width: 12),
+            ],
+            if (_isEditing) ...[
+              IconButton(
+                onPressed: _deleteCurrentWorkout,
+                icon: Icon(Icons.delete, color: ActionColors.delete),
+                tooltip: 'Delete workout',
+                padding: EdgeInsets.all(8),
+              ),
+              SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () {
+                  // Cancel - reset to current saved state (what's in the database)
+                  setState(() {
+                    _editableWorkouts = Map.from(_currentSavedWorkouts.map((key, value) =>
+                      MapEntry(key, value.map((e) => e.copyWith()).toList())));
+                    _editableCoreWorkout = _currentSavedCoreWorkout;
+                    _editableActivities = _currentSavedActivities.map((a) => a.copyWith()).toList();
+                    _isEditing = false;
+                  });
+                },
+                style: primaryButtonStyle,
+                child: Text('Cancel', style: TextStyle(fontSize: 16)),
+              ),
+              SizedBox(width: 12),
+              ElevatedButton(
+                onPressed: _saveChanges,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text('Save', style: TextStyle(fontSize: 16)),
+              ),
+            ] else ...[
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text('Close', style: TextStyle(fontSize: 16)),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _addWorkoutForCurrentTab() async {
+    final currentTabIndex = _tabController.index;
+    final currentMuscleGroup = _tabOrder[currentTabIndex];
+
+    // Check if content already exists (shouldn't happen, but handle it)
+    if (_hasContent(currentMuscleGroup)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Workout already exists for this date'),
+            duration: Duration(milliseconds: 800),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Add workout based on muscle group
+    if (currentMuscleGroup == MuscleGroup.upperBody || currentMuscleGroup == MuscleGroup.lowerBody) {
+      try {
+        final workout = await WorkoutGenerator.generateWorkout(currentMuscleGroup);
+
+        // Mark exercises as completed by filling in completedSets with suggested reps
+        final completedExercises = workout.exercises.map((e) {
+          final lowEndReps = int.tryParse(e.reps.split('-').first) ?? 8;
+          final completedSets = List.generate(numSets, (_) => lowEndReps);
+          return e.copyWith(completedSets: completedSets);
+        }).toList();
+
+        if (_isEditing) {
+          // In edit mode: just update local state (don't save to DB yet)
+          setState(() {
+            _editableWorkouts[currentMuscleGroup] = completedExercises;
+          });
+        } else {
+          // Not in edit mode: save immediately to database
+          await _saveWorkoutToDatabase(muscleGroup: currentMuscleGroup, exercises: completedExercises);
+          await _refreshDialogData();
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${muscleGroupToString(currentMuscleGroup)} workout added!'),
+              duration: Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error generating workout: $e'),
+              backgroundColor: ActionColors.error,
+              duration: Duration(milliseconds: 1500),
+            ),
+          );
+        }
+      }
+    } else if (currentMuscleGroup == MuscleGroup.core) {
+      try {
+        final date = DateTime.parse(widget.date);
+        final dateSeed = DateTime(date.year, date.month, date.day).millisecondsSinceEpoch;
+        final coreWorkout = CoreWorkoutGenerator.generateDailyCoreRoutine(dateSeed);
+
+        if (_isEditing) {
+          // In edit mode: just update local state (don't save to DB yet)
+          setState(() {
+            _editableCoreWorkout = coreWorkout;
+          });
+        } else {
+          // Not in edit mode: save immediately to database
+          await _saveWorkoutToDatabase(coreWorkout: coreWorkout);
+          await _refreshDialogData();
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Core workout added!'),
+              duration: Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error generating core workout: $e'),
+              backgroundColor: ActionColors.error,
+              duration: Duration(milliseconds: 1500),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showAddExerciseDialog(MuscleGroup muscleGroup) async {
+    // Get all exercises for this muscle group from ExerciseDatabase
+    final allExercises = muscleGroup == MuscleGroup.upperBody
+        ? [
+            ...ExerciseDatabase.chestExercises,
+            ...ExerciseDatabase.backExercises,
+            ...ExerciseDatabase.shoulderExercises,
+            ...ExerciseDatabase.armExercises,
+          ]
+        : ExerciseDatabase.legExercises;
+
+    // Filter out exercises that are already in the current workout
+    final currentExerciseNames = (_editableWorkouts[muscleGroup] ?? [])
+        .map((e) => e.name)
+        .toSet();
+    final availableExercises = allExercises
+        .where((ex) => !currentExerciseNames.contains(ex.name))
+        .toList();
+
+    if (!mounted) return;
+
+    // Show exercise selection dialog
+    final selectedExercise = await showExerciseSelectionDialog(
+      context: context,
+      availableExercises: availableExercises,
+    );
+
+    if (selectedExercise != null && mounted) {
+      setState(() {
+        // Add with completed sets pre-filled
+        final lowEndReps = int.tryParse(selectedExercise.reps.split('-').first) ?? 8;
+        final completedSets = List.generate(numSets, (_) => lowEndReps);
+        final exerciseWithSets = selectedExercise.copyWith(completedSets: completedSets);
+        _editableWorkouts[muscleGroup]!.add(exerciseWithSets);
+      });
+    }
+  }
+
+  Future<void> _deleteCurrentWorkout() async {
+    // Determine which workout to delete based on current tab
+    final tabIndex = _tabController.index;
+    if (tabIndex < 0 || tabIndex >= _tabOrder.length) return;
+
+    final muscleGroup = _tabOrder[tabIndex];
+    final workoutName = muscleGroupShortName(muscleGroup);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Workout'),
+        content: Text('Are you sure you want to delete the entire $workoutName workout for this date?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: ActionColors.delete),
+            child: Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      // Update local state
+      setState(() {
+        if (muscleGroup == MuscleGroup.core) {
+          _editableCoreWorkout = null;
+        } else if (muscleGroup == MuscleGroup.otherActivity) {
+          _editableActivities.clear();
+        } else {
+          _editableWorkouts.remove(muscleGroup);
+        }
+      });
+
+      // If not in edit mode, save the deletion to database immediately and refresh
+      if (!_isEditing) {
+        try {
+          await _saveChangesWithoutClosing();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Workout deleted successfully'),
+                duration: Duration(milliseconds: 800),
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error deleting workout: $e'),
+                backgroundColor: ActionColors.error,
+                duration: Duration(milliseconds: 1500),
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _refreshDialogData({bool preserveEditMode = false}) async {
+    // Reload workout data from database
+    final date = DateTime.parse(widget.date);
+    final workoutsByGroup = await LocalDB.getWorkoutsByMuscleGroup(date);
+    final coreWorkout = await LocalDB.getCoreRoutineForDate(date);
+    final activities = await LocalDB.getActivitiesForDate(date);
+
+    if (mounted) {
+      setState(() {
+        // Update editable copies with fresh data
+        _editableWorkouts = Map.from(workoutsByGroup.map((key, value) =>
+          MapEntry(key, value.map((e) => e.copyWith()).toList())));
+        _editableCoreWorkout = coreWorkout;
+        _editableActivities = activities?.activities.map((a) => a.copyWith()).toList() ?? [];
+
+        // Update current saved state to reflect what's actually in the database
+        _currentSavedWorkouts = Map.from(workoutsByGroup.map((key, value) =>
+          MapEntry(key, value.map((e) => e.copyWith()).toList())));
+        _currentSavedCoreWorkout = coreWorkout;
+        _currentSavedActivities = activities?.activities.map((a) => a.copyWith()).toList() ?? [];
+
+        if (!preserveEditMode) {
+          _isEditing = false; // Exit edit mode to show in view mode
+        }
+      });
+    }
+  }
+
+  Future<void> _saveWorkoutToDatabase({
+    MuscleGroup? muscleGroup,
+    List<Exercise>? exercises,
+    CoreWorkoutRoutine? coreWorkout,
+  }) async {
+    final dateStr = widget.date;
+    final db = await LocalDB.database;
+
+    // Get existing workout log
+    final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [dateStr]);
+    List<dynamic> existingExercises = [];
+
+    if (existing.isNotEmpty) {
+      final existingData = existing.first;
+      existingExercises = jsonDecode(existingData['exercises'] as String) as List;
+    }
+
+    // Add exercises for the muscle group
+    if (muscleGroup != null && exercises != null) {
+      // Remove old exercises for this muscle group
+      existingExercises.removeWhere((item) =>
+        item is Map && item['muscleGroup'] == muscleGroupToString(muscleGroup));
+
+      // Add new exercises
+      for (final exercise in exercises) {
+        existingExercises.add(exercise.toJson());
+      }
+    }
+
+    // Add core workout
+    if (coreWorkout != null) {
+      // Remove old core workout
+      existingExercises.removeWhere((item) =>
+        item is Map && item['isCore'] == true);
+
+      // Add new core workout
+      existingExercises.add({
+        'isCore': true,
+        'sets': coreWorkout.sets,
+        'exercisesPerSet': coreWorkout.exercisesPerSet,
+        'exercises': coreWorkout.exercises.map((e) => e.toJson()).toList(),
+      });
+    }
+
+    // Calculate target area
+    final targetAreas = <String>[];
+    for (var item in existingExercises) {
+      if (item is Map) {
+        if (item['muscleGroup'] == muscleGroupToString(MuscleGroup.upperBody) &&
+            !targetAreas.contains(muscleGroupToString(MuscleGroup.upperBody))) {
+          targetAreas.add(muscleGroupToString(MuscleGroup.upperBody));
+        } else if (item['muscleGroup'] == muscleGroupToString(MuscleGroup.lowerBody) &&
+            !targetAreas.contains(muscleGroupToString(MuscleGroup.lowerBody))) {
+          targetAreas.add(muscleGroupToString(MuscleGroup.lowerBody));
+        } else if (item['isCore'] == true &&
+            !targetAreas.contains(muscleGroupToString(MuscleGroup.core))) {
+          targetAreas.add(muscleGroupToString(MuscleGroup.core));
+        }
+      }
+    }
+    final targetAreaStr = targetAreas.isNotEmpty ? targetAreas.join(' + ') : 'Workout';
+
+    // Update or insert
+    if (existing.isEmpty) {
+      await db.insert('workout_logs', {
+        'date': dateStr,
+        'target_area': targetAreaStr,
+        'exercises': jsonEncode(existingExercises),
+      });
+    } else {
+      await db.update('workout_logs', {
+        'target_area': targetAreaStr,
+        'exercises': jsonEncode(existingExercises),
+      }, where: 'date = ?', whereArgs: [dateStr]);
+    }
+
+    // Notify parent to refresh calendar dots
+    widget.onWorkoutChanged?.call();
+  }
+
+  Future<void> _saveChanges() async {
+    try {
+      // Save changes to database
+      await _saveChangesWithoutClosing();
+
+      // Update current saved state to match what was just saved
+      if (mounted) {
+        setState(() {
+          _currentSavedWorkouts = Map.from(_editableWorkouts.map((key, value) =>
+            MapEntry(key, value.map((e) => e.copyWith()).toList())));
+          _currentSavedCoreWorkout = _editableCoreWorkout;
+          _currentSavedActivities = _editableActivities.map((a) => a.copyWith()).toList();
+        });
+      }
+
+      // Close dialog and show success message
+      if (mounted) {
+        Navigator.pop(context, true); // Return true to indicate changes were saved
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Workout updated successfully'),
+            duration: Duration(milliseconds: 800),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving changes: $e'),
+            backgroundColor: ActionColors.error,
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveChangesWithoutClosing() async {
+    final dateStr = widget.date;
+
+    // Use the service method to update workouts while preserving other muscle groups
+    await LocalDB.updateWorkoutsForDate(
+      date: dateStr,
+      originalMuscleGroups: widget.workoutsByGroup.keys.toSet(),
+      newWorkoutsByGroup: _editableWorkouts,
+      originalHadCore: widget.coreWorkout != null,
+      newCoreWorkout: _editableCoreWorkout,
+      originalHadActivities: widget.activities != null,
+      newActivities: _editableActivities.isEmpty ? null : _editableActivities,
+    );
+
+    // Notify parent to refresh calendar dots
+    widget.onWorkoutChanged?.call();
+  }
+}
+
+// Dialog for adding a new activity
+class _AddActivityDialog extends StatefulWidget {
+  @override
+  State<_AddActivityDialog> createState() => _AddActivityDialogState();
+}
+
+class _AddActivityDialogState extends State<_AddActivityDialog> {
+  final _nameController = TextEditingController();
+  final _durationController = TextEditingController();
+  final _notesController = TextEditingController();
+  final List<ActivityAttachment> _attachments = [];
+  List<String> _previousActivityNames = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreviousActivityNames();
+  }
+
+  Future<void> _loadPreviousActivityNames() async {
+    final names = await ActivityPreferencesService.getActivityNames();
+    if (mounted) {
+      setState(() {
+        _previousActivityNames = names;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _durationController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickAttachment() async {
+    try {
+      final attachment = await AttachmentService.pickAttachment();
+      if (attachment != null) {
+        setState(() {
+          _attachments.add(attachment);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding attachment: $e'),
+            backgroundColor: ActionColors.error,
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    if (_nameController.text.trim().isEmpty || _durationController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter activity name and duration'),
+          duration: Duration(milliseconds: 800),
+        ),
+      );
+      return;
+    }
+
+    final duration = int.tryParse(_durationController.text);
+    if (duration == null || duration <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter a valid duration'),
+          duration: Duration(milliseconds: 800),
+        ),
+      );
+      return;
+    }
+
+    final activity = Activity(
+      name: _nameController.text.trim(),
+      durationMinutes: duration,
+      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      attachments: _attachments.isEmpty ? null : List.from(_attachments),
+    );
+
+    // Auto-save to Hive for future autocomplete and duration pre-fill
+    try {
+      await ActivityPreferencesService.saveOrUpdateActivity(
+        activity.name,
+        activity.durationMinutes,
+      );
+    } catch (e) {
+      // Ignore save errors, activity will still be added to workout
+    }
+
+    if (mounted) {
+      Navigator.pop(context, activity);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Add Activity'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Autocomplete<String>(
+              optionsBuilder: (TextEditingValue textEditingValue) {
+                if (textEditingValue.text.isEmpty) {
+                  return const Iterable<String>.empty();
+                }
+                return _previousActivityNames.where((String option) {
+                  return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                });
+              },
+              onSelected: (String selection) async {
+                _nameController.text = selection;
+
+                // Pre-fill duration from Hive if available
+                final savedActivity = await ActivityPreferencesService.getActivity(selection);
+                if (savedActivity != null && mounted) {
+                  setState(() {
+                    _durationController.text = savedActivity.usualDurationMinutes.toString();
+                  });
+                }
+              },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                // Sync with our controller
+                controller.text = _nameController.text;
+                controller.selection = _nameController.selection;
+
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Activity Name',
+                    hintText: 'e.g., Kayaking, Cycling, Taekwondo',
+                    border: OutlineInputBorder(),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (value) {
+                    _nameController.text = value;
+                  },
+                );
+              },
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: _durationController,
+              decoration: InputDecoration(
+                labelText: 'Duration (minutes)',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: _notesController,
+              decoration: InputDecoration(
+                labelText: 'Notes (optional)',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Attachments', style: TextStyle(fontWeight: FontWeight.w500)),
+                OutlinedButton.icon(
+                  onPressed: _pickAttachment,
+                  icon: Icon(Icons.attach_file, size: 16),
+                  label: Text('Add File'),
+                  style: smallButtonStyle,
+                ),
+              ],
+            ),
+            if (_attachments.isNotEmpty) ...[
+              SizedBox(height: 8),
+              ..._attachments.asMap().entries.map((entry) {
+                final index = entry.key;
+                final attachment = entry.value;
+                return Container(
+                  margin: EdgeInsets.only(bottom: 4),
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(2), color: Colors.white),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: Image.memory(base64Decode(attachment.thumbnailBase64), fit: BoxFit.cover),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(attachment.fileName, style: TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, size: 16, color: ActionColors.delete),
+                        onPressed: () => setState(() => _attachments.removeAt(index)),
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text('OK'),
+          child: Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: Text('Add'),
         ),
       ],
     );

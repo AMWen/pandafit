@@ -4,25 +4,76 @@ import '../models/activity_attachment.dart';
 import '../constants.dart';
 import '../services/attachment_service.dart';
 
-/// Widget to view activity attachments
-class AttachmentViewer extends StatelessWidget {
+/// Widget to view and edit activity attachments
+class AttachmentViewer extends StatefulWidget {
   final List<ActivityAttachment> attachments;
   final String activityName;
+  final Function(List<ActivityAttachment>)? onAttachmentsChanged;
 
   const AttachmentViewer({
     super.key,
     required this.attachments,
     required this.activityName,
+    this.onAttachmentsChanged,
   });
+
+  @override
+  State<AttachmentViewer> createState() => _AttachmentViewerState();
+}
+
+class _AttachmentViewerState extends State<AttachmentViewer> {
+  late List<ActivityAttachment> _attachments;
+
+  @override
+  void initState() {
+    super.initState();
+    _attachments = List.from(widget.attachments);
+  }
+
+  void _deleteAttachment(int index) {
+    setState(() {
+      _attachments.removeAt(index);
+    });
+    widget.onAttachmentsChanged?.call(_attachments);
+  }
+
+  Future<void> _addAttachment() async {
+    try {
+      final attachment = await AttachmentService.pickAttachment();
+      if (attachment != null) {
+        setState(() {
+          _attachments.add(attachment);
+        });
+        widget.onAttachmentsChanged?.call(_attachments);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding attachment: $e'),
+            backgroundColor: ActionColors.error,
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('$activityName - Attachments'),
+        title: Text('${widget.activityName} - Attachments'),
         backgroundColor: primaryColor,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.add_photo_alternate),
+            onPressed: _addAttachment,
+            tooltip: 'Add attachment',
+          ),
+        ],
       ),
-      body: attachments.isEmpty
+      body: _attachments.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -33,28 +84,42 @@ class AttachmentViewer extends StatelessWidget {
                     'No attachments',
                     style: TextStyle(color: Colors.grey, fontSize: 16),
                   ),
+                  SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _addAttachment,
+                    icon: Icon(Icons.add),
+                    label: Text('Add Attachment'),
+                    style: primaryButtonStyle,
+                  ),
                 ],
               ),
             )
           : ListView.builder(
               padding: EdgeInsets.all(16),
-              itemCount: attachments.length,
+              itemCount: _attachments.length,
               itemBuilder: (context, index) {
-                final attachment = attachments[index];
+                final attachment = _attachments[index];
                 return _AttachmentCard(
                   attachment: attachment,
-                  onTap: () => _viewAttachment(context, attachment),
+                  onTap: () => _viewAttachment(context, index),
+                  onDelete: () => _deleteAttachment(index),
                 );
               },
             ),
     );
   }
 
-  void _viewAttachment(BuildContext context, ActivityAttachment attachment) {
+  void _viewAttachment(BuildContext context, int index) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => _FullAttachmentView(attachment: attachment),
+        builder: (context) => _FullAttachmentView(
+          attachment: _attachments[index],
+          onDelete: () {
+            Navigator.pop(context);
+            _deleteAttachment(index);
+          },
+        ),
       ),
     );
   }
@@ -64,10 +129,12 @@ class AttachmentViewer extends StatelessWidget {
 class _AttachmentCard extends StatelessWidget {
   final ActivityAttachment attachment;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   const _AttachmentCard({
     required this.attachment,
     required this.onTap,
+    required this.onDelete,
   });
 
   @override
@@ -142,6 +209,36 @@ class _AttachmentCard extends StatelessWidget {
                   ],
                 ),
               ),
+              // Delete button
+              IconButton(
+                icon: Icon(Icons.delete_outline, color: ActionColors.delete),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text('Delete Attachment'),
+                      content: Text('Are you sure you want to delete this attachment?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            onDelete();
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: ActionColors.delete,
+                          ),
+                          child: Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                tooltip: 'Delete attachment',
+              ),
               Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
@@ -154,8 +251,12 @@ class _AttachmentCard extends StatelessWidget {
 /// Full-screen attachment view
 class _FullAttachmentView extends StatelessWidget {
   final ActivityAttachment attachment;
+  final VoidCallback onDelete;
 
-  const _FullAttachmentView({required this.attachment});
+  const _FullAttachmentView({
+    required this.attachment,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -165,6 +266,37 @@ class _FullAttachmentView extends StatelessWidget {
       appBar: AppBar(
         title: Text(attachment.fileName),
         backgroundColor: primaryColor,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.delete_outline),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Text('Delete Attachment'),
+                  content: Text('Are you sure you want to delete this attachment?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onDelete();
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ActionColors.delete,
+                      ),
+                      child: Text('Delete'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            tooltip: 'Delete attachment',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -180,7 +312,7 @@ class _FullAttachmentView extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Showing thumbnail only. Full file (${AttachmentService.formatFileSize(attachment.originalSizeBytes)}) was not backed up to Excel.',
+                      'Showing thumbnail only. Full file (${AttachmentService.formatFileSize(attachment.originalSizeBytes)}) too large.',
                       style: TextStyle(
                         color: Colors.orange[900],
                         fontSize: 13,

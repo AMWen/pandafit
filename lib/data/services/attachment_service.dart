@@ -14,14 +14,18 @@ import '../models/activity_attachment.dart';
 /// - Images (JPEG, PNG): Compresses and generates thumbnail
 ///
 /// Storage strategy:
-/// - Thumbnail: Always ≤20KB (fallback to 50KB if needed), stored in Excel
-/// - Full file: Only stored if ≤50KB, otherwise thumbnail only
+/// - Thumbnail: ≤50KB for export/import, 400x560 dimensions
+/// - Full file: Stored if original < 500KB
+/// - Compressed file: If original ≥500KB, compress to <1MB with variable quality
+///   - Smaller files (e.g., 600KB): light compression
+///   - Larger files (e.g., 5MB): aggressive compression
+/// - No full file stored if can't compress to <1MB
 class AttachmentService {
-  static const int maxThumbnailSize = 20 * 1024; // 20KB target
-  static const int maxThumbnailSizeFallback = 50 * 1024; // 50KB fallback
-  static const int maxFullFileSize = 50 * 1024; // 50KB
-  static const int thumbnailWidth = 200;
-  static const int thumbnailHeight = 280;
+  static const int maxThumbnailSize = 50 * 1024; // 50KB for export/import
+  static const int maxFullFileSizeUncompressed = 500 * 1024; // 500KB - store as-is
+  static const int maxCompressedFileSize = 1024 * 1024; // 1MB - compression target
+  static const int thumbnailWidth = 400;
+  static const int thumbnailHeight = 560;
 
   /// Pick and process a file attachment
   ///
@@ -98,34 +102,22 @@ class AttachmentService {
       throw Exception('Unable to decode image');
     }
 
-    // Generate thumbnail (200x280, maintain aspect ratio)
-    final thumbnail = _generateImageThumbnail(image);
-    final thumbnailBytes = img.encodeJpg(thumbnail, quality: 60);
-    String thumbnailBase64 = base64Encode(thumbnailBytes);
+    // Generate and compress thumbnail
+    String thumbnailBase64 = _generateThumbnailBase64(image);
 
-    // If thumbnail exceeds 20KB, try lower quality
-    if (thumbnailBytes.length > maxThumbnailSize) {
-      final lowerQuality = img.encodeJpg(thumbnail, quality: 45);
-      if (lowerQuality.length <= maxThumbnailSizeFallback) {
-        thumbnailBase64 = base64Encode(lowerQuality);
-      }
-    }
-
-    // Store full file if small enough - try both PNG and JPEG, use smaller
+    // Store full file based on size
     String? fullFileBase64;
-    if (originalSize <= maxFullFileSize) {
-      final compressedJpeg = img.encodeJpg(image, quality: 75);
-      final compressedPng = img.encodePng(image, level: 9); // Max compression
 
-      // Use the smaller format that fits within limit
-      if (compressedJpeg.length <= maxFullFileSize && compressedPng.length <= maxFullFileSize) {
-        // Both fit - use smaller one
-        fullFileBase64 = base64Encode(compressedJpeg.length < compressedPng.length ? compressedJpeg : compressedPng);
-      } else if (compressedJpeg.length <= maxFullFileSize) {
-        fullFileBase64 = base64Encode(compressedJpeg);
-      } else if (compressedPng.length <= maxFullFileSize) {
-        fullFileBase64 = base64Encode(compressedPng);
+    if (originalSize < maxFullFileSizeUncompressed) {
+      // Original is < 500KB - store as-is without compression
+      fullFileBase64 = base64Encode(bytes);
+    } else {
+      // Original ≥ 500KB - try to compress to < 1MB with variable quality
+      final Uint8List? compressed = _compressImageToTarget(image, originalSize);
+      if (compressed != null) {
+        fullFileBase64 = base64Encode(compressed);
       }
+      // If compression failed (returned null), fullFileBase64 stays null
     }
 
     return _ProcessedFile(
@@ -160,28 +152,12 @@ class AttachmentService {
         numChannels: 4, // RGBA
       );
 
-      // Resize to thumbnail dimensions
-      final thumbnail = _generateImageThumbnail(imgData);
+      // Generate and compress thumbnail
+      String thumbnailBase64 = _generateThumbnailBase64(imgData);
 
-      // Encode as PNG first
-      final pngBytes = img.encodePng(thumbnail);
-      String thumbnailBase64 = base64Encode(pngBytes);
-
-      // If thumbnail exceeds 20KB, compress as JPEG
-      if (pngBytes.length > maxThumbnailSize) {
-        final jpegBytes = img.encodeJpg(thumbnail, quality: 60);
-        if (jpegBytes.length <= maxThumbnailSizeFallback) {
-          thumbnailBase64 = base64Encode(jpegBytes);
-        } else {
-          // Try even lower quality
-          final lowerJpeg = img.encodeJpg(thumbnail, quality: 40);
-          thumbnailBase64 = base64Encode(lowerJpeg);
-        }
-      }
-
-      // Store full PDF if small enough
+      // Store full PDF if < 1MB (can't compress PDFs further)
       String? fullFileBase64;
-      if (originalSize <= maxFullFileSize) {
+      if (originalSize < maxCompressedFileSize) {
         fullFileBase64 = base64Encode(bytes);
       }
 
@@ -195,7 +171,75 @@ class AttachmentService {
     }
   }
 
-  /// Generate thumbnail image (200x280, maintain aspect ratio)
+  /// Compress image to target size (<1MB) with variable quality based on original size
+  ///
+  /// Tries both JPEG and PNG compression, returns smaller format
+  /// Returns compressed bytes if successful, null if can't reach target
+  static Uint8List? _compressImageToTarget(img.Image image, int originalSize) {
+    // Calculate initial quality based on original size
+    // Smaller files (600KB): start with higher quality (85)
+    // Larger files (5MB+): start with lower quality (60)
+    int jpegQuality;
+    if (originalSize < 1024 * 1024) {
+      // < 1MB: light compression
+      jpegQuality = 85;
+    } else if (originalSize < 3 * 1024 * 1024) {
+      // 1-3MB: medium compression
+      jpegQuality = 75;
+    } else {
+      // ≥ 3MB: aggressive compression
+      jpegQuality = 60;
+    }
+
+    // Try JPEG compression with progressively lower quality
+    Uint8List jpegCompressed = img.encodeJpg(image, quality: jpegQuality);
+
+    while (jpegCompressed.length > maxCompressedFileSize && jpegQuality > 20) {
+      jpegQuality -= 5;
+      jpegCompressed = img.encodeJpg(image, quality: jpegQuality);
+    }
+
+    // Try PNG compression (start with high compression, reduce if needed)
+    int pngLevel = 9; // Max compression
+    Uint8List pngCompressed = img.encodePng(image, level: pngLevel);
+
+    while (pngCompressed.length > maxCompressedFileSize && pngLevel > 0) {
+      pngLevel -= 2;
+      pngCompressed = img.encodePng(image, level: pngLevel);
+    }
+
+    // Use whichever format is smaller and under target
+    Uint8List? result;
+    if (jpegCompressed.length <= maxCompressedFileSize && pngCompressed.length <= maxCompressedFileSize) {
+      // Both fit - use smaller
+      result = jpegCompressed.length < pngCompressed.length ? jpegCompressed : pngCompressed;
+    } else if (jpegCompressed.length <= maxCompressedFileSize) {
+      result = jpegCompressed;
+    } else if (pngCompressed.length <= maxCompressedFileSize) {
+      result = pngCompressed;
+    }
+
+    return result; // null if neither format fits under target
+  }
+
+  /// Generate and compress thumbnail to base64
+  /// Resizes to 400x560 and compresses to <50KB
+  static String _generateThumbnailBase64(img.Image image) {
+    final thumbnail = _generateImageThumbnail(image);
+
+    // Try to get thumbnail under 50KB with progressive quality reduction
+    int quality = 80;
+    Uint8List thumbnailBytes = img.encodeJpg(thumbnail, quality: quality);
+
+    while (thumbnailBytes.length > maxThumbnailSize && quality > 45) {
+      quality -= 5;
+      thumbnailBytes = img.encodeJpg(thumbnail, quality: quality);
+    }
+
+    return base64Encode(thumbnailBytes);
+  }
+
+  /// Generate thumbnail image (400x560, maintain aspect ratio)
   static img.Image _generateImageThumbnail(img.Image image) {
     final aspectRatio = image.width / image.height;
     final targetRatio = thumbnailWidth / thumbnailHeight;

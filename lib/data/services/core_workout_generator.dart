@@ -3,6 +3,9 @@ import '../constants.dart';
 import '../models/core_exercise_model.dart';
 
 class CoreWorkoutGenerator {
+  // Generate a core workout routine
+  // Optional seed parameter ensures deterministic generation for a specific date
+  // If seed is null, uses current date and hour (today)
   static CoreWorkoutRoutine generateDailyCoreRoutine([int? seed]) {
     if (seed == null) {
       final now = DateTime.now();

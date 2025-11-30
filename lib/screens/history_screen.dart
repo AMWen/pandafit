@@ -1644,7 +1644,10 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     // Add workout based on muscle group
     if (currentMuscleGroup == MuscleGroup.upperBody || currentMuscleGroup == MuscleGroup.lowerBody) {
       try {
-        final workout = await WorkoutGenerator.generateWorkout(currentMuscleGroup);
+        // Use the selected date to generate deterministic workout
+        final date = DateTime.parse(widget.date);
+        final dateSeed = DateTime(date.year, date.month, date.day).millisecondsSinceEpoch;
+        final workout = await WorkoutGenerator.generateWorkout(currentMuscleGroup, dateSeed);
 
         // Mark exercises as completed by filling in completedSets with suggested reps
         final completedExercises = workout.exercises.map((e) {

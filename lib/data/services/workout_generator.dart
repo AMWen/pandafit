@@ -8,9 +8,11 @@ import 'workout_preferences_service.dart';
 
 class WorkoutGenerator {
   // Generate a workout for the selected target area with smart suggestions
-  static Future<WorkoutRoutine> generateWorkout(MuscleGroup targetArea) async {
+  // Optional seed parameter ensures deterministic generation for a specific date
+  // If seed is null, uses current date (today)
+  static Future<WorkoutRoutine> generateWorkout(MuscleGroup targetArea, [int? seed]) async {
     // Get randomly selected exercises from database
-    final exercises = await _getRandomExercises(targetArea);
+    final exercises = await _getRandomExercises(targetArea, seed);
 
     // Apply smart suggestions and custom preferences to each exercise
     final exercisesWithSuggestions = await Future.wait(
@@ -52,10 +54,12 @@ class WorkoutGenerator {
   // Randomly select exercises from each category for the target area
   // Uses deterministic seeding based on date to ensure same workout for same day
   // Now supports custom exercise preferences and user-added exercises
-  static Future<List<Exercise>> _getRandomExercises(MuscleGroup targetArea) async {
-    // Create deterministic seed based on current date
-    final now = DateTime.now();
-    final seed = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+  static Future<List<Exercise>> _getRandomExercises(MuscleGroup targetArea, [int? seed]) async {
+    // Create deterministic seed based on current date if not provided
+    if (seed == null) {
+      final now = DateTime.now();
+      seed = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+    }
     final random = Random(seed);
 
     // Get workout generation preferences

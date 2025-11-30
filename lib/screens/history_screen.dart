@@ -233,8 +233,11 @@ class HistoryScreenState extends State<HistoryScreen>
             _loadWorkoutDates();
             // Refresh streak display
             _streakKey.currentState?.refresh();
-            // Also refresh home screen to sync completed workouts
-            widget.onDataImported?.call();
+            // Only refresh home screen if TODAY's date was modified
+            final today = DateTime.now().toIso8601String().substring(0, 10);
+            if (dateString == today) {
+              widget.onDataImported?.call();
+            }
           },
         ),
       );

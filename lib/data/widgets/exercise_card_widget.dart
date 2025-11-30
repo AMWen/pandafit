@@ -142,8 +142,8 @@ class _ExerciseCardState extends State<ExerciseCard> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                        // Video link and Info icons
-                        if (!isSkipped) ...[
+                        // Video link icon (only show when active, not completed)
+                        if (!isSkipped && !_isCompleted)
                           Transform.translate(
                             offset: Offset(8, 0),
                             child: IconButton(
@@ -153,6 +153,8 @@ class _ExerciseCardState extends State<ExerciseCard> {
                               padding: EdgeInsets.all(8),
                             ),
                           ),
+                        // Info icon (show when not skipped, even if completed)
+                        if (!isSkipped)
                           IconButton(
                             icon: Icon(Icons.info_outline, color: secondaryColor),
                             onPressed: () {
@@ -163,7 +165,6 @@ class _ExerciseCardState extends State<ExerciseCard> {
                             tooltip: 'Form notes',
                             padding: EdgeInsets.all(8),
                           ),
-                        ],
                         // Skip/Restore icon
                         if (!_isCompleted)
                           Transform.translate(

@@ -83,9 +83,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onPageChanged(int index) {
     setState(() {
       // Save current workout to cache and database before switching
-      if (currentWorkout != null && selectedTarget != null) {
-        cachedWorkouts[selectedTarget!] = currentWorkout!;
-        LocalDB.saveIncompleteWorkout(currentWorkout!);
+      if (selectedTarget != null) {
+        final workoutToSave = _saveIncompleteWorkoutProgress();
+        if (workoutToSave != null) {
+          cachedWorkouts[selectedTarget!] = workoutToSave;
+        }
       }
 
       _currentIndex = index;
@@ -145,8 +147,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final incompleteWorkouts = await LocalDB.getIncompleteWorkouts(today);
     final incompleteActivities = await LocalDB.getIncompleteActivities(today);
 
-    // Load incomplete workouts into cache
+    // Load incomplete workouts into cache and restore exercise updates
     cachedWorkouts = incompleteWorkouts;
+
+    // Populate exerciseUpdates from incomplete workouts to restore progress
+    for (var workout in incompleteWorkouts.values) {
+      for (var exercise in workout.exercises) {
+        exerciseUpdates[exercise.name] = exercise;
+      }
+    }
 
     // Load completed workouts and set default selection to Upper Body
     if (routine != null) {
@@ -201,15 +210,8 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    // Default to Upper Body selection
-    setState(() {
-      selectedTarget = MuscleGroup.upperBody;
-    });
-
-    // Generate Upper Body workout if not completed
-    if (!completedWorkoutsToday.containsKey(MuscleGroup.upperBody)) {
-      _generateWorkout(MuscleGroup.upperBody);
-    }
+    // Initialize Upper Body tab (index 0) - uses same logic as tab switching
+    _onPageChanged(0);
   }
 
   Future<void> _generateWorkout(MuscleGroup target) async {
@@ -267,9 +269,32 @@ class _HomeScreenState extends State<HomeScreen> {
     return int.tryParse(match?.group(1) ?? '') ?? 8;
   }
 
+  // Save current workout progress with exercise updates applied
+  // Returns the workout with updates applied for caching
+  WorkoutRoutine? _saveIncompleteWorkoutProgress() {
+    if (currentWorkout == null) return null;
+
+    final updatedExercises = currentWorkout!.exercises
+      .map((ex) => exerciseUpdates[ex.name] ?? ex)
+      .toList();
+
+    final workoutToSave = WorkoutRoutine(
+      targetArea: currentWorkout!.targetArea,
+      exercises: updatedExercises,
+    );
+
+    // ignore: unawaited_futures
+    LocalDB.saveIncompleteWorkout(workoutToSave);
+
+    return workoutToSave;
+  }
+
   void _updateExercise(Exercise updated) {
     // Store exercise updates by name
     exerciseUpdates[updated.name] = updated;
+
+    // Save incomplete workout to preserve progress
+    _saveIncompleteWorkoutProgress();
   }
 
   void _skipExercise(Exercise exercise) {
@@ -277,6 +302,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final skipped = exercise.copyWith(isSkipped: true);
       exerciseUpdates[exercise.name] = skipped;
     });
+
+    // Save incomplete workout to preserve skip state
+    _saveIncompleteWorkoutProgress();
   }
 
   void _restoreExercise(Exercise exercise) {
@@ -284,6 +312,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final restored = exercise.copyWith(isSkipped: false);
       exerciseUpdates[exercise.name] = restored;
     });
+
+    // Save incomplete workout to preserve restore state
+    _saveIncompleteWorkoutProgress();
   }
 
   Future<void> _completeWorkout() async {

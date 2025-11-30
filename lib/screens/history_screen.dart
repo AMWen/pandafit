@@ -796,12 +796,12 @@ class HistoryScreenState extends State<HistoryScreen>
     );
   }
 
-  String _formatDate(String isoDate) {
+  String _formatDate(String dateStr) {
     try {
-      final date = DateTime.parse(isoDate);
-      return '${date.month}/${date.day}';
+      final date = DateTime.parse(dateStr);
+      return '${date.month}/${date.day}/${date.year.toString().substring(2)}';
     } catch (e) {
-      return isoDate;
+      return dateStr;
     }
   }
 
@@ -862,31 +862,20 @@ class HistoryScreenState extends State<HistoryScreen>
       return SizedBox.shrink();
     }
 
-    // Truncate notes if too long
-    final displayText = notes.length > 30 ? '${notes.substring(0, 30)}...' : notes;
+    // Count actual newlines to determine number of lines
+    final lineCount = '\n'.allMatches(notes).length + 1;
+    final maxLines = lineCount.clamp(1, 2);
 
-    return InkWell(
-      onTap: () {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text('Notes'),
-            content: Text(notes),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Close'),
-              ),
-            ],
-          ),
-        );
-      },
-      child: Text(
-        displayText,
-        style: TextStyle(
-          color: Colors.grey[700],
-          fontSize: 12,
-          decoration: TextDecoration.underline,
+    return Tooltip(
+      message: notes,
+      triggerMode: TooltipTriggerMode.tap,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 120),
+        child: Text(
+          notes,
+          style: TextStyle(fontSize: 13),
+          overflow: TextOverflow.ellipsis,
+          maxLines: maxLines,
         ),
       ),
     );

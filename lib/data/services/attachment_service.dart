@@ -7,19 +7,16 @@ import 'package:mime/mime.dart';
 import 'package:printing/printing.dart';
 import '../models/activity_attachment.dart';
 
-/// Service for handling activity attachments
-///
-/// Supports:
-/// - PDF files: Generates thumbnail from first page
-/// - Images (JPEG, PNG): Compresses and generates thumbnail
-///
-/// Storage strategy:
-/// - Thumbnail: ≤50KB for export/import, 400x560 dimensions
-/// - Full file: Stored if original < 500KB
-/// - Compressed file: If original ≥500KB, compress to <1MB with variable quality
-///   - Smaller files (e.g., 600KB): light compression
-///   - Larger files (e.g., 5MB): aggressive compression
-/// - No full file stored if can't compress to <1MB
+// Service for handling activity attachments
+//
+// Supports:
+// - PDF files: Generates thumbnail from first page
+// - Images (JPEG, PNG): Compresses and generates thumbnail
+//
+// Storage strategy:
+// - Thumbnail: ≤50KB for export/import, 400x560 dimensions
+// - Full file: Stored if original < 500KB
+// - Compressed file: If original ≥500KB, compress to <1MB with variable quality
 class AttachmentService {
   static const int maxThumbnailSize = 50 * 1024; // 50KB for export/import
   static const int maxFullFileSizeUncompressed = 500 * 1024; // 500KB - store as-is
@@ -27,10 +24,9 @@ class AttachmentService {
   static const int thumbnailWidth = 400;
   static const int thumbnailHeight = 560;
 
-  /// Pick and process a file attachment
-  ///
-  /// Returns null if user cancels or error occurs
-  /// Shows error message to user if file is unsupported
+  // Pick and process a file attachment
+  // Returns null if user cancels or error occurs
+  // Shows error message to user if file is unsupported
   static Future<ActivityAttachment?> pickAttachment() async {
     try {
       // Pick file with data loading for cloud file support
@@ -91,7 +87,7 @@ class AttachmentService {
     }
   }
 
-  /// Process image file: compress and generate thumbnail
+  // Process image file: compress and generate thumbnail
   static Future<_ProcessedFile> _processImage(
     Uint8List bytes,
     int originalSize,
@@ -126,7 +122,7 @@ class AttachmentService {
     );
   }
 
-  /// Process PDF file: generate thumbnail from first page
+  // Process PDF file: generate thumbnail from first page
   static Future<_ProcessedFile> _processPdf(
     Uint8List bytes,
     int originalSize,
@@ -171,10 +167,7 @@ class AttachmentService {
     }
   }
 
-  /// Compress image to target size (<1MB) with variable quality based on original size
-  ///
-  /// Tries both JPEG and PNG compression, returns smaller format
-  /// Returns compressed bytes if successful, null if can't reach target
+  // Compress image to target size (<1MB) with variable quality based on original size
   static Uint8List? _compressImageToTarget(img.Image image, int originalSize) {
     // Calculate initial quality based on original size
     // Smaller files (600KB): start with higher quality (85)
@@ -194,52 +187,49 @@ class AttachmentService {
     // Try JPEG compression with progressively lower quality
     Uint8List jpegCompressed = img.encodeJpg(image, quality: jpegQuality);
 
-    while (jpegCompressed.length > maxCompressedFileSize && jpegQuality > 20) {
-      jpegQuality -= 5;
+    jpegQuality -= 10;
+    while (jpegCompressed.length > maxCompressedFileSize && jpegQuality > 40) {
       jpegCompressed = img.encodeJpg(image, quality: jpegQuality);
+      jpegQuality -= 10;
     }
 
-    // Try PNG compression (start with high compression, reduce if needed)
-    int pngLevel = 9; // Max compression
-    Uint8List pngCompressed = img.encodePng(image, level: pngLevel);
-
-    while (pngCompressed.length > maxCompressedFileSize && pngLevel > 0) {
-      pngLevel -= 2;
-      pngCompressed = img.encodePng(image, level: pngLevel);
+    // If JPEG already fits under target, just use it (skip PNG entirely)
+    if (jpegCompressed.length <= maxCompressedFileSize) {
+      return jpegCompressed;
     }
 
-    // Use whichever format is smaller and under target
-    Uint8List? result;
-    if (jpegCompressed.length <= maxCompressedFileSize && pngCompressed.length <= maxCompressedFileSize) {
-      // Both fit - use smaller
-      result = jpegCompressed.length < pngCompressed.length ? jpegCompressed : pngCompressed;
-    } else if (jpegCompressed.length <= maxCompressedFileSize) {
-      result = jpegCompressed;
-    } else if (pngCompressed.length <= maxCompressedFileSize) {
-      result = pngCompressed;
-    }
+    // Try PNG compression only if JPEG didn't fit
+    Uint8List pngCompressed = img.encodePng(image, level: 8);  // 8 is pretty high compression
 
-    return result; // null if neither format fits under target
+    // If PNG fits, use it
+    if (pngCompressed.length <= maxCompressedFileSize) {
+      return pngCompressed;
+    }
+    // Return smaller of the two, even if neither fits
+    else {
+      return jpegCompressed.length < pngCompressed.length ? jpegCompressed : pngCompressed;
+    }
   }
 
-  /// Generate and compress thumbnail to base64
-  /// Resizes to 400x560 and compresses to <50KB
+  // Generate and compress thumbnail to base64
+  // Resizes to 400x560 and compresses to <50KB
   static String _generateThumbnailBase64(img.Image image) {
     final thumbnail = _generateImageThumbnail(image);
 
     // Try to get thumbnail under 50KB with progressive quality reduction
     int quality = 80;
     Uint8List thumbnailBytes = img.encodeJpg(thumbnail, quality: quality);
+    quality -= 10;
 
-    while (thumbnailBytes.length > maxThumbnailSize && quality > 45) {
-      quality -= 5;
+    while (thumbnailBytes.length > maxThumbnailSize && quality > 40) {
+      quality -= 10;
       thumbnailBytes = img.encodeJpg(thumbnail, quality: quality);
     }
 
     return base64Encode(thumbnailBytes);
   }
 
-  /// Generate thumbnail image (400x560, maintain aspect ratio)
+  // Generate thumbnail image (400x560, maintain aspect ratio)
   static img.Image _generateImageThumbnail(img.Image image) {
     final aspectRatio = image.width / image.height;
     final targetRatio = thumbnailWidth / thumbnailHeight;
@@ -264,12 +254,12 @@ class AttachmentService {
     );
   }
 
-  /// Decode base64 attachment data to bytes
+  // Decode base64 attachment data to bytes
   static Uint8List decodeAttachment(String base64Data) {
     return base64Decode(base64Data);
   }
 
-  /// Get file size display string
+  // Get file size display string
   static String formatFileSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -277,7 +267,7 @@ class AttachmentService {
   }
 }
 
-/// Internal class for processed file results
+// Internal class for processed file results
 class _ProcessedFile {
   final String thumbnail;
   final String? fullFile;

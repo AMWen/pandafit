@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:pdfx/pdfx.dart';
 import '../models/activity_attachment.dart';
 import '../constants.dart';
 import '../services/attachment_service.dart';
@@ -184,7 +185,7 @@ class _AttachmentCard extends StatelessWidget {
                     ),
                     SizedBox(height: 6),
                     Text(
-                      AttachmentService.formatFileSize(attachment.originalSizeBytes),
+                      'Original: ${AttachmentService.formatFileSize(attachment.originalSizeBytes)}',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey[600],
@@ -198,7 +199,7 @@ class _AttachmentCard extends StatelessWidget {
                           SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              'Thumbnail only (compressed file >50KB)',
+                              'Thumbnail only (file too large)',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.grey[600],
@@ -252,7 +253,7 @@ class _AttachmentCard extends StatelessWidget {
 }
 
 /// Full-screen attachment view
-class _FullAttachmentView extends StatelessWidget {
+class _FullAttachmentView extends StatefulWidget {
   final ActivityAttachment attachment;
   final VoidCallback onDelete;
 
@@ -262,12 +263,73 @@ class _FullAttachmentView extends StatelessWidget {
   });
 
   @override
+  State<_FullAttachmentView> createState() => _FullAttachmentViewState();
+}
+
+class _FullAttachmentViewState extends State<_FullAttachmentView> {
+  PdfControllerPinch? _pdfController;
+  bool _isPdfLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final hasStoredFile = widget.attachment.fullFileBase64 != null;
+    final isPdf = widget.attachment.mimeType == 'application/pdf';
+
+    // Initialize PDF controller if we have a stored PDF
+    if (isPdf && hasStoredFile) {
+      _initializePdfController();
+    }
+  }
+
+  Future<void> _initializePdfController() async {
+    setState(() => _isPdfLoading = true);
+    try {
+      final pdfBytes = base64Decode(widget.attachment.fullFileBase64!);
+      _pdfController = PdfControllerPinch(
+        document: PdfDocument.openData(pdfBytes),
+      );
+      // Wait for the document to load to catch any errors
+      await _pdfController!.document;
+    } catch (e) {
+      // If PDF loading fails, controller stays null and we'll show thumbnail
+      debugPrint('Failed to load PDF: $e');
+      _pdfController?.dispose();
+      _pdfController = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to load PDF viewer. Showing preview instead.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPdfLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pdfController?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hasFullFile = attachment.fullFileBase64 != null;
+    final hasStoredFile = widget.attachment.fullFileBase64 != null;
+    final storedFileSize = hasStoredFile
+        ? (widget.attachment.fullFileBase64!.length * 3 / 4).round() // base64 to bytes approximation
+        : 0;
+    final isPdf = widget.attachment.mimeType == 'application/pdf';
+    final canShowStoredFile = hasStoredFile && !isPdf; // Images only
+    final canShowPdf = isPdf && _pdfController != null; // PDF with loaded controller
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(attachment.fileName),
+        title: Text(widget.attachment.fileName),
         backgroundColor: primaryColor,
         actions: [
           IconButton(
@@ -286,7 +348,7 @@ class _FullAttachmentView extends StatelessWidget {
                     FilledButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        onDelete();
+                        widget.onDelete();
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: ActionColors.delete,
@@ -304,7 +366,7 @@ class _FullAttachmentView extends StatelessWidget {
       body: Column(
         children: [
           // Info banner
-          if (!hasFullFile)
+          if (isPdf && !hasStoredFile)
             Container(
               width: double.infinity,
               padding: EdgeInsets.all(12),
@@ -315,7 +377,28 @@ class _FullAttachmentView extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Showing thumbnail only. Full file (${AttachmentService.formatFileSize(attachment.originalSizeBytes)}) too large.',
+                      'Showing first page preview. Original PDF (${AttachmentService.formatFileSize(widget.attachment.originalSizeBytes)}) too large to store.',
+                      style: TextStyle(
+                        color: Colors.orange[900],
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (!canShowStoredFile && !isPdf)
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12),
+              color: Colors.orange[100],
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange[900], size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Showing thumbnail only. Original file (${AttachmentService.formatFileSize(widget.attachment.originalSizeBytes)}) too large to store.',
                       style: TextStyle(
                         color: Colors.orange[900],
                         fontSize: 13,
@@ -325,20 +408,24 @@ class _FullAttachmentView extends StatelessWidget {
                 ],
               ),
             ),
-          // Image view
+          // Content view - PDF or Image
           Expanded(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Center(
-                child: Image.memory(
-                  base64Decode(
-                    hasFullFile ? attachment.fullFileBase64! : attachment.thumbnailBase64,
-                  ),
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
+            child: _isPdfLoading
+                ? Center(child: CircularProgressIndicator())
+                : canShowPdf
+                    ? PdfViewPinch(controller: _pdfController!)
+                    : InteractiveViewer(
+                        minScale: 0.5,
+                        maxScale: 4.0,
+                        child: Center(
+                          child: Image.memory(
+                            base64Decode(
+                              canShowStoredFile ? widget.attachment.fullFileBase64! : widget.attachment.thumbnailBase64,
+                            ),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
           ),
           // File info
           Container(
@@ -356,7 +443,7 @@ class _FullAttachmentView extends StatelessWidget {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        attachment.fileName,
+                        widget.attachment.fileName,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -369,16 +456,34 @@ class _FullAttachmentView extends StatelessWidget {
                 SizedBox(height: 8),
                 Row(
                   children: [
-                    _InfoChip(
-                      icon: Icons.data_usage,
-                      label: AttachmentService.formatFileSize(attachment.originalSizeBytes),
-                    ),
-                    SizedBox(width: 8),
-                    _InfoChip(
-                      icon: hasFullFile ? Icons.check_circle : Icons.image,
-                      label: hasFullFile ? 'Full file' : 'Thumbnail',
-                      color: hasFullFile ? Colors.green : Colors.orange,
-                    ),
+                    if (isPdf) ...[
+                      _InfoChip(
+                        icon: Icons.picture_as_pdf,
+                        label: 'PDF ${hasStoredFile ? AttachmentService.formatFileSize(storedFileSize) : AttachmentService.formatFileSize(widget.attachment.originalSizeBytes)}',
+                        color: Colors.red,
+                      ),
+                      SizedBox(width: 8),
+                      _InfoChip(
+                        icon: canShowPdf ? Icons.chrome_reader_mode : Icons.preview,
+                        label: canShowPdf ? 'Scrollable' : 'Preview only',
+                        color: canShowPdf ? Colors.green : Colors.orange,
+                      ),
+                    ] else ...[
+                      _InfoChip(
+                        icon: Icons.data_usage,
+                        label: hasStoredFile
+                            ? AttachmentService.formatFileSize(storedFileSize)
+                            : AttachmentService.formatFileSize(widget.attachment.originalSizeBytes),
+                      ),
+                      SizedBox(width: 8),
+                      _InfoChip(
+                        icon: hasStoredFile ? Icons.check_circle : Icons.image,
+                        label: hasStoredFile
+                            ? (storedFileSize < widget.attachment.originalSizeBytes ? 'Compressed' : 'Stored')
+                            : 'Thumbnail only',
+                        color: hasStoredFile ? Colors.green : Colors.orange,
+                      ),
+                    ],
                   ],
                 ),
               ],

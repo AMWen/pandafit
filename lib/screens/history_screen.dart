@@ -18,6 +18,7 @@ import '../data/services/activity_preferences_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
 import '../data/widgets/attachment_viewer.dart';
 import '../data/widgets/exercise_selection_dialog.dart';
+import '../utils/ui_helpers.dart';
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback? onDataImported;
@@ -183,6 +184,7 @@ class HistoryScreenState extends State<HistoryScreen>
                   notes: activity.notes,
                   date: DateTime.parse(dateStr),
                   attachments: activity.attachments,
+                  completedAt: activity.completedAt, // Preserve timestamp
                 );
                 if (!_activitiesHistory.containsKey(activity.name)) {
                   _activitiesHistory[activity.name] = [];
@@ -240,6 +242,7 @@ class HistoryScreenState extends State<HistoryScreen>
               widget.onDataImported?.call();
             }
           },
+          onUpdateActivityAttachments: _updateActivityAttachments,
         ),
       );
 
@@ -252,12 +255,7 @@ class HistoryScreenState extends State<HistoryScreen>
   }
 
   void showErrorSnackbar(BuildContext context, String message) {
-    Duration duration =
-        message.contains('Error') ? Duration(milliseconds: 1500) : Duration(milliseconds: 800);
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), duration: duration));
+    showSnackbar(context, message, isError: message.contains('Error'));
   }
 
   @override
@@ -827,6 +825,76 @@ class HistoryScreenState extends State<HistoryScreen>
     }
   }
 
+  /// Common helper to update activity attachments - avoids stale activity references
+  /// by fetching fresh data from database and identifying activities by name and date
+  Future<void> _updateActivityAttachments({
+    required String activityName,
+    required DateTime activityDate,
+    required int activityDuration,
+    required DateTime? activityCompletedAt,
+    required List<ActivityAttachment> newAttachments,
+    required String source, // 'Dialog' or 'History Table' for logging
+  }) async {
+    try {
+      final dateStr = activityDate.toIso8601String().substring(0, 10);
+
+      // Always fetch current activities from database to avoid stale data
+      final currentActivities = await LocalDB.getActivitiesForDate(activityDate);
+
+      // Find the specific activity - prefer completedAt timestamp, fall back to name+duration
+      final updatedActivities = currentActivities?.activities.map((a) {
+        bool matches = false;
+        if (activityCompletedAt != null && a.completedAt != null) {
+          // Prefer matching by completedAt timestamp (unique identifier)
+          matches = a.completedAt == activityCompletedAt;
+        } else {
+          // Fall back to matching by name+duration (backwards compatibility)
+          matches = a.name == activityName && a.durationMinutes == activityDuration;
+        }
+
+        if (matches) {
+          // Use replaceAttachments to properly handle null/empty attachments
+          return a.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
+        }
+        return a;
+      }).toList();
+
+      if (updatedActivities == null || updatedActivities.isEmpty) {
+        throw Exception('Activity not found in database');
+      }
+
+      await LocalDB.updateWorkoutsForDate(
+        date: dateStr,
+        originalMuscleGroups: {},
+        newWorkoutsByGroup: {},
+        originalHadCore: false,
+        newCoreWorkout: null,
+        originalHadActivities: true,
+        newActivities: updatedActivities,
+      );
+    } catch (e) {
+      if (mounted) {
+        showSnackbar(context, 'Error saving attachment: $e', isError: true);
+      }
+      rethrow;
+    }
+  }
+
+  /// Handle attachment changes for activities in the history table
+  Future<void> _handleAttachmentChangesForActivity(Activity activity, List<ActivityAttachment> newAttachments) async {
+    await _updateActivityAttachments(
+      activityName: activity.name,
+      activityDate: activity.date ?? DateTime.now(),
+      activityDuration: activity.durationMinutes,
+      activityCompletedAt: activity.completedAt,
+      newAttachments: newAttachments,
+      source: 'History Table',
+    );
+
+    // Refresh progress data to show changes
+    await _loadProgressData();
+  }
+
   Widget _buildAttachmentsCell(Activity activity) {
     if (activity.attachments == null || activity.attachments!.isEmpty) {
       return SizedBox.shrink();
@@ -836,13 +904,14 @@ class HistoryScreenState extends State<HistoryScreen>
     final firstAttachment = attachments.first;
 
     return InkWell(
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => AttachmentViewer(
               attachments: attachments,
               activityName: activity.name,
+              onAttachmentsChanged: (newAttachments) => _handleAttachmentChangesForActivity(activity, newAttachments),
             ),
           ),
         );
@@ -912,6 +981,14 @@ class _WorkoutHistoryDialog extends StatefulWidget {
   final ActivityRoutine? activities;
   final int initialTabIndex;
   final VoidCallback? onWorkoutChanged;
+  final Future<void> Function({
+    required String activityName,
+    required DateTime activityDate,
+    required int activityDuration,
+    required DateTime? activityCompletedAt,
+    required List<ActivityAttachment> newAttachments,
+    required String source,
+  })? onUpdateActivityAttachments;
 
   const _WorkoutHistoryDialog({
     required this.date,
@@ -920,6 +997,7 @@ class _WorkoutHistoryDialog extends StatefulWidget {
     this.activities,
     this.initialTabIndex = 0,
     this.onWorkoutChanged,
+    this.onUpdateActivityAttachments,
   });
 
   @override
@@ -976,6 +1054,30 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Handle attachment changes for activities in the dialog
+  Future<void> _handleAttachmentChangesInDialog(int activityIndex, Activity activity, List<ActivityAttachment> newAttachments) async {
+    if (widget.onUpdateActivityAttachments != null) {
+      // Use parent's common helper to avoid stale data
+      final activityDate = DateTime.parse(widget.date);
+      await widget.onUpdateActivityAttachments!(
+        activityName: activity.name,
+        activityDate: activityDate,
+        activityDuration: activity.durationMinutes,
+        activityCompletedAt: activity.completedAt,
+        newAttachments: newAttachments,
+        source: 'Dialog',
+      );
+
+      // Update local state to reflect changes in the dialog UI
+      setState(() {
+        _editableActivities[activityIndex] = _editableActivities[activityIndex].copyWith(
+          attachments: newAttachments.isEmpty ? null : newAttachments,
+        );
+        _currentSavedActivities = _editableActivities.map((a) => a.copyWith()).toList();
+      });
+    }
   }
 
   Widget _buildEmptyState(String message, {MuscleGroup? muscleGroup}) {
@@ -1283,13 +1385,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                             }
                           } catch (e) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Error adding attachment: $e'),
-                                  backgroundColor: ActionColors.error,
-                                  duration: Duration(milliseconds: 1500),
-                                ),
-                              );
+                              showSnackbar(context, 'Error adding attachment: $e', isError: true);
                             }
                           }
                         },
@@ -1361,19 +1457,22 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                       ),
                     ),
                   ],
-                  if (activity.attachments != null && activity.attachments!.isNotEmpty) ...[
+                  if (_editableActivities[index].attachments != null && _editableActivities[index].attachments!.isNotEmpty) ...[
                     SizedBox(height: 4),
                     InkWell(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => AttachmentViewer(
-                              attachments: activity.attachments!,
+                              attachments: _editableActivities[index].attachments!,
                               activityName: activity.name,
+                              onAttachmentsChanged: (newAttachments) => _handleAttachmentChangesInDialog(index, activity, newAttachments),
                             ),
                           ),
                         );
+                        // Force rebuild after returning from viewer
+                        setState(() {});
                       },
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1381,7 +1480,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                           Icon(Icons.attach_file, size: 14, color: Colors.grey[600]),
                           SizedBox(width: 4),
                           Text(
-                            '${activity.attachments!.length} attachment${activity.attachments!.length > 1 ? 's' : ''}',
+                            '${_editableActivities[index].attachments!.length} attachment${_editableActivities[index].attachments!.length > 1 ? 's' : ''}',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 12,
@@ -1643,12 +1742,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     // Check if content already exists (shouldn't happen, but handle it)
     if (_hasContent(currentMuscleGroup)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Workout already exists for this date'),
-            duration: Duration(milliseconds: 800),
-          ),
-        );
+        showSnackbar(context, 'Workout already exists for this date');
       }
       return;
     }
@@ -1680,22 +1774,11 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
         }
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${muscleGroupToString(currentMuscleGroup)} workout added!'),
-              duration: Duration(milliseconds: 800),
-            ),
-          );
+          showSnackbar(context, '${muscleGroupToString(currentMuscleGroup)} workout added!');
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error generating workout: $e'),
-              backgroundColor: ActionColors.error,
-              duration: Duration(milliseconds: 1500),
-            ),
-          );
+          showSnackbar(context, 'Error generating workout: $e', isError: true);
         }
       }
     } else if (currentMuscleGroup == MuscleGroup.core) {
@@ -1716,22 +1799,11 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
         }
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Core workout added!'),
-              duration: Duration(milliseconds: 800),
-            ),
-          );
+          showSnackbar(context, 'Core workout added!');
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error generating core workout: $e'),
-              backgroundColor: ActionColors.error,
-              duration: Duration(milliseconds: 1500),
-            ),
-          );
+          showSnackbar(context, 'Error generating core workout: $e', isError: true);
         }
       }
     }
@@ -1819,22 +1891,11 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
         try {
           await _saveChangesWithoutClosing();
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Workout deleted successfully'),
-                duration: Duration(milliseconds: 800),
-              ),
-            );
+            showSnackbar(context, 'Workout deleted successfully');
           }
         } catch (e) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error deleting workout: $e'),
-                backgroundColor: ActionColors.error,
-                duration: Duration(milliseconds: 1500),
-              ),
-            );
+            showSnackbar(context, 'Error deleting workout: $e', isError: true);
           }
         }
       }
@@ -1967,22 +2028,11 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
       // Close dialog and show success message
       if (mounted) {
         Navigator.pop(context, true); // Return true to indicate changes were saved
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Workout updated successfully'),
-            duration: Duration(milliseconds: 800),
-          ),
-        );
+        showSnackbar(context, 'Workout updated successfully');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving changes: $e'),
-            backgroundColor: ActionColors.error,
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
+        showSnackbar(context, 'Error saving changes: $e', isError: true);
       }
     }
   }
@@ -2052,40 +2102,24 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error adding attachment: $e'),
-            backgroundColor: ActionColors.error,
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
+        showSnackbar(context, 'Error adding attachment: $e', isError: true);
       }
     }
   }
 
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty || _durationController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter activity name and duration'),
-          duration: Duration(milliseconds: 800),
-        ),
-      );
+      showSnackbar(context, 'Please enter activity name and duration');
       return;
     }
 
     final duration = int.tryParse(_durationController.text);
     if (duration == null || duration <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter a valid duration'),
-          duration: Duration(milliseconds: 800),
-        ),
-      );
+      showSnackbar(context, 'Please enter a valid duration');
       return;
     }
 
-    final activity = Activity(
+    final activity = Activity.create(
       name: _nameController.text.trim(),
       durationMinutes: duration,
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),

@@ -675,7 +675,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showSnackbar(String message) {
-    showSnackbar(context, message, duration: const Duration(milliseconds: 800));
+    showSnackbar(context, message);
   }
 
 
@@ -1346,12 +1346,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error adding attachment: $e'),
-            backgroundColor: ActionColors.error,
-          ),
-        );
+        showSnackbar(context, 'Error adding attachment: $e', isError: true);
       }
     }
   }
@@ -1371,12 +1366,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
         'attachments': _attachments.isNotEmpty ? _attachments : null,
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter a valid duration'),
-          duration: Duration(milliseconds: 800),
-        ),
-      );
+      showSnackbar(context, 'Please enter a valid duration');
     }
   }
 

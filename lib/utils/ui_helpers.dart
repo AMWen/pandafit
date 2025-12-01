@@ -5,11 +5,21 @@ import '../data/constants.dart';
 /// UI helper functions and reusable widgets
 
 /// Shows a snackbar with the given message
-void showSnackbar(BuildContext context, String message, {Duration? duration}) {
+void showSnackbar(
+  BuildContext context,
+  String message, {
+  Duration? duration,
+  Color? backgroundColor,
+  bool isError = false,
+}) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
-      duration: duration ?? const Duration(seconds: 2),
+      duration: duration ??
+          (isError
+              ? const Duration(milliseconds: 1500)
+              : const Duration(milliseconds: 800)),
+      backgroundColor: backgroundColor ?? (isError ? ActionColors.error : null),
     ),
   );
 }

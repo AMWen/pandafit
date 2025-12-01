@@ -6,6 +6,7 @@ class Activity {
   final String? notes;
   final DateTime? date;
   final List<ActivityAttachment>? attachments;
+  final DateTime? completedAt; // Timestamp for unique identification
 
   Activity({
     required this.name,
@@ -13,7 +14,26 @@ class Activity {
     this.notes,
     this.date,
     this.attachments,
+    this.completedAt,
   });
+
+  /// Factory constructor for creating new activities with auto-generated timestamp
+  factory Activity.create({
+    required String name,
+    required int durationMinutes,
+    String? notes,
+    DateTime? date,
+    List<ActivityAttachment>? attachments,
+  }) {
+    return Activity(
+      name: name,
+      durationMinutes: durationMinutes,
+      notes: notes,
+      date: date,
+      attachments: attachments,
+      completedAt: DateTime.now(), // Auto-generated for new activities
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -22,6 +42,7 @@ class Activity {
       'notes': notes,
       'date': date?.toIso8601String(),
       'attachments': attachments?.map((a) => a.toMap()).toList(),
+      'completedAt': completedAt?.toIso8601String(),
     };
   }
 
@@ -36,15 +57,18 @@ class Activity {
               .map((a) => ActivityAttachment.fromMap(a as Map<String, dynamic>))
               .toList()
           : null,
+      completedAt: map['completedAt'] != null ? DateTime.parse(map['completedAt']) : null,
     );
   }
 
+  /// Standard copyWith - can't set fields to null (use replaceAttachments for that)
   Activity copyWith({
     String? name,
     int? durationMinutes,
     String? notes,
     DateTime? date,
     List<ActivityAttachment>? attachments,
+    DateTime? completedAt,
   }) {
     return Activity(
       name: name ?? this.name,
@@ -52,6 +76,19 @@ class Activity {
       notes: notes ?? this.notes,
       date: date ?? this.date,
       attachments: attachments ?? this.attachments,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
+
+  /// Explicitly replace attachments (supports setting to null or empty list)
+  Activity replaceAttachments(List<ActivityAttachment>? newAttachments) {
+    return Activity(
+      name: name,
+      durationMinutes: durationMinutes,
+      notes: notes,
+      date: date,
+      attachments: newAttachments,
+      completedAt: completedAt,
     );
   }
 }

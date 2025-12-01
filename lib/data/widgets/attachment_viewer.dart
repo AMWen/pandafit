@@ -61,16 +61,19 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
 
   @override
   Widget build(BuildContext context) {
+    final isEditable = widget.onAttachmentsChanged != null;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.activityName} - Attachments'),
         backgroundColor: primaryColor,
         actions: [
-          IconButton(
-            icon: Icon(Icons.add_photo_alternate),
-            onPressed: _addAttachment,
-            tooltip: 'Add attachment',
-          ),
+          if (isEditable)
+            IconButton(
+              icon: Icon(Icons.add_photo_alternate),
+              onPressed: _addAttachment,
+              tooltip: 'Add attachment',
+            ),
         ],
       ),
       body: _attachments.isEmpty
@@ -357,6 +360,7 @@ class _FullAttachmentView extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
+                          color: primaryColor,
                         ),
                       ),
                     ),

@@ -839,7 +839,11 @@ class LocalDB {
     // Find the activities data
     for (var item in exercisesJson) {
       if (item is Map && item['isActivity'] == true) {
-        final activities = (item['activities'] as List).map((a) => Activity.fromMap(a)).toList();
+        final activities = (item['activities'] as List).map((a) {
+          final activity = Activity.fromMap(a);
+          // If the activity doesn't have a date, set it from the workout log date
+          return activity.date == null ? activity.copyWith(date: date) : activity;
+        }).toList();
         return ActivityRoutine(activities: activities);
       }
     }

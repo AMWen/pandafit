@@ -214,7 +214,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
 
   void submitActivity() {
     if (_formKey.currentState!.validate()) {
-      final activity = Activity(
+      final activity = Activity.create(
         name: _nameController.text.trim(),
         durationMinutes: int.parse(_durationController.text),
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),

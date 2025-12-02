@@ -346,7 +346,10 @@ class ExcelExportService {
           final notes = history.notes != null && history.notes!.isNotEmpty
               ? ': ${history.notes}'
               : '';
-          final cellValue = duration + notes;
+          final completedAt = history.completedAt != null
+              ? ' [${history.completedAt!.toIso8601String()}]'
+              : '';
+          final cellValue = duration + notes + completedAt;
           sheet.cell(CellIndex.indexByColumnRow(columnIndex: colIdx + 1, rowIndex: rowIdx + 1))
             .value = TextCellValue(cellValue);
         }
@@ -586,8 +589,18 @@ class ExcelExportService {
     }
 
     // Build data rows
+    const maxBase64Length = 1500000; // 1.5M character limit to reduce bloating
+
     for (int rowIdx = 0; rowIdx < attachments.length; rowIdx++) {
       final attachment = attachments[rowIdx];
+      final thumbnailBase64 = attachment['thumbnailBase64'] as String;
+      final fullFileBase64 = attachment['fullFileBase64'] as String?;
+
+      // Skip entire attachment if thumbnail is too large (shouldn't happen, but safety check)
+      // Thumbnails are required for import, so we can't export metadata without it
+      if (thumbnailBase64.length > maxBase64Length) {
+        continue; // Skip this attachment row entirely
+      }
 
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIdx + 1))
         .value = TextCellValue(attachment['date'] as String);
@@ -599,10 +612,18 @@ class ExcelExportService {
         .value = TextCellValue(attachment['mimeType'] as String);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIdx + 1))
         .value = IntCellValue(attachment['originalSize'] as int);
+
+      // Thumbnail is always exported (already checked above)
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rowIdx + 1))
-        .value = TextCellValue(attachment['thumbnailBase64'] as String);
+        .value = TextCellValue(thumbnailBase64);
+
+      // Only export full file if within size limit
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: rowIdx + 1))
-        .value = TextCellValue(attachment['fullFileBase64'] as String? ?? '');
+        .value = TextCellValue(
+          fullFileBase64 != null && fullFileBase64.length <= maxBase64Length
+            ? fullFileBase64
+            : ''
+        );
     }
   }
 }

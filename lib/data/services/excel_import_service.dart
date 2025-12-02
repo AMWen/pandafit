@@ -492,8 +492,22 @@ class ExcelImportService {
         final cellValue = cell.value?.toString();
 
         if (cellValue != null && cellValue.isNotEmpty) {
-          // Parse format: "45 min" or "45 min: notes here"
-          final parts = cellValue.split(': ');
+          // Parse format: "45 min" or "45 min: notes here" or "45 min: notes here [2025-01-15T14:30:00.000Z]"
+          // Extract completedAt if present (ISO 8601 timestamp in brackets at end)
+          DateTime? completedAt;
+          String workingValue = cellValue;
+          // Match only ISO 8601 datetime format in brackets at end: [YYYY-MM-DDTHH:MM:SS...]
+          final completedAtMatch = RegExp(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\]]*)\]$').firstMatch(cellValue);
+          if (completedAtMatch != null) {
+            try {
+              completedAt = DateTime.parse(completedAtMatch.group(1)!);
+              workingValue = cellValue.substring(0, completedAtMatch.start).trim();
+            } catch (e) {
+              // If parsing fails, ignore completedAt and keep original value
+            }
+          }
+
+          final parts = workingValue.split(': ');
           final durationPart = parts[0].trim();
           final notesPart = parts.length > 1 ? parts.sublist(1).join(': ') : null;
 
@@ -506,6 +520,7 @@ class ExcelImportService {
                 'name': activityNames[col],
                 'durationMinutes': duration,
                 'notes': notesPart,
+                'completedAt': completedAt?.toIso8601String(),
               });
             }
           }
@@ -718,8 +733,9 @@ class ExcelImportService {
       final thumbnailBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i)).value?.toString();
       final fullFileBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i)).value?.toString();
 
-      if (date == null || activityName == null || fileName == null || mimeType == null || thumbnailBase64 == null) {
-        continue; // Skip invalid rows
+      if (date == null || activityName == null || fileName == null || mimeType == null ||
+          thumbnailBase64 == null || thumbnailBase64.isEmpty) {
+        continue; // Skip invalid rows (thumbnail is required)
       }
 
       final originalSize = int.tryParse(originalSizeStr ?? '0') ?? 0;

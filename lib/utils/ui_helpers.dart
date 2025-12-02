@@ -5,6 +5,8 @@ import '../data/constants.dart';
 /// UI helper functions and reusable widgets
 
 /// Shows a snackbar with the given message
+///
+/// Uses Overlay directly to ensure snackbar appears above all dialogs
 void showSnackbar(
   BuildContext context,
   String message, {
@@ -12,16 +14,50 @@ void showSnackbar(
   Color? backgroundColor,
   bool isError = false,
 }) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      duration: duration ??
-          (isError
-              ? const Duration(milliseconds: 1500)
-              : const Duration(milliseconds: 800)),
-      backgroundColor: backgroundColor ?? (isError ? ActionColors.error : null),
+  final actualDuration = duration ??
+      (isError
+          ? const Duration(milliseconds: 1500)
+          : const Duration(milliseconds: 800));
+
+  final overlay = Navigator.of(context, rootNavigator: true).overlay;
+  if (overlay == null) return;
+
+  late OverlayEntry overlayEntry;
+  overlayEntry = OverlayEntry(
+    builder: (context) => Positioned(
+      bottom: 16,
+      left: 16,
+      right: 16,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: backgroundColor ?? (isError ? ActionColors.error : Colors.black87),
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            message,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      ),
     ),
   );
+
+  overlay.insert(overlayEntry);
+
+  // Auto-remove after duration
+  Future.delayed(actualDuration, () {
+    overlayEntry.remove();
+  });
 }
 
 /// Builds a completion message container with consistent styling

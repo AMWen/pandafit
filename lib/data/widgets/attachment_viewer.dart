@@ -55,25 +55,18 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
     try {
       final attachment = await AttachmentService.pickAttachment();
       if (attachment != null && mounted) {
-        // Check size limit before adding
-        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
-          // Try adding just thumbnail if full attachment is too large
-          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
-            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
-            setState(() {
-              _attachments.add(thumbnailOnly);
-            });
-            widget.onAttachmentsChanged?.call(_attachments);
-            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
-          } else {
-            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
-          }
-          return;
+        final attachmentsToAdd = AttachmentService.tryAddAttachment(
+          context: context,
+          existingAttachments: _attachments,
+          newAttachment: attachment,
+        );
+
+        if (attachmentsToAdd != null) {
+          setState(() {
+            _attachments.addAll(attachmentsToAdd);
+          });
+          widget.onAttachmentsChanged?.call(_attachments);
         }
-        setState(() {
-          _attachments.add(attachment);
-        });
-        widget.onAttachmentsChanged?.call(_attachments);
       }
     } catch (e) {
       if (mounted) {

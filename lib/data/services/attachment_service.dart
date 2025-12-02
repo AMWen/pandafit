@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:mime/mime.dart';
 import 'package:printing/printing.dart';
 import '../models/activity_attachment.dart';
+import '../../utils/ui_helpers.dart';
 
 // Service for handling activity attachments
 //
@@ -315,6 +317,32 @@ class AttachmentService {
   // Create a thumbnail-only version of an attachment (removes full file)
   static ActivityAttachment createThumbnailOnly(ActivityAttachment attachment) {
     return attachment.clearFullFile();
+  }
+
+  /// Validates and adds an attachment to an existing list with size checks
+  ///
+  /// Shows snackbar messages automatically when size limits are exceeded.
+  /// Returns the list of attachments to add, or null if validation failed.
+  static List<ActivityAttachment>? tryAddAttachment({
+    required BuildContext context,
+    required List<ActivityAttachment> existingAttachments,
+    required ActivityAttachment newAttachment,
+  }) {
+    // Check if full attachment fits
+    if (canAddAttachment(existingAttachments, newAttachment)) {
+      return [newAttachment];
+    }
+
+    // Try thumbnail only if full attachment is too large
+    if (canAddThumbnailOnly(existingAttachments, newAttachment)) {
+      final thumbnailOnly = createThumbnailOnly(newAttachment);
+      showSnackbar(context, thumbnailOnlyWarning, isError: true);
+      return [thumbnailOnly];
+    }
+
+    // Exceeded limit even with thumbnail only
+    showSnackbar(context, sizeExceededErrorMessage, isError: true);
+    return null;
   }
 }
 

@@ -335,7 +335,29 @@ class HistoryScreenState extends State<HistoryScreen>
               tooltip: 'Import',
               onPressed: () async {
                 if (!context.mounted) return;
+
+                // Show loading dialog
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => AlertDialog(
+                    content: Row(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(width: 20),
+                        Text('Importing data...'),
+                      ],
+                    ),
+                  ),
+                );
+
                 String result = await ExcelImportService.importFromExcel(context);
+
+                // Close loading dialog
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+
                 if (context.mounted) {
                   showErrorSnackbar(context, result);
                   // Refresh data after import
@@ -354,7 +376,30 @@ class HistoryScreenState extends State<HistoryScreen>
               icon: Icon(Icons.save),
               tooltip: 'Export',
               onPressed: () async {
+                if (!context.mounted) return;
+
+                // Show loading dialog
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => AlertDialog(
+                    content: Row(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(width: 20),
+                        Text('Exporting data...'),
+                      ],
+                    ),
+                  ),
+                );
+
                 String result = await ExcelExportService.exportToExcel();
+
+                // Close loading dialog
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+
                 if (context.mounted) {
                   showErrorSnackbar(context, result);
                 }
@@ -1436,27 +1481,19 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                             final attachment = await AttachmentService.pickAttachment();
                             if (attachment != null && mounted) {
                               final existingAttachments = activity.attachments ?? [];
-                              // Check size limit before adding
-                              if (!AttachmentService.canAddAttachment(existingAttachments, attachment)) {
-                                // Try adding just thumbnail if full attachment is too large
-                                if (AttachmentService.canAddThumbnailOnly(existingAttachments, attachment)) {
-                                  final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
-                                  setState(() {
-                                    final newAttachments = List<ActivityAttachment>.from(existingAttachments);
-                                    newAttachments.add(thumbnailOnly);
-                                    _editableActivities[index] = activity.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
-                                  });
-                                  showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
-                                } else {
-                                  showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
-                                }
-                                return;
+                              final attachmentsToAdd = AttachmentService.tryAddAttachment(
+                                context: context,
+                                existingAttachments: existingAttachments,
+                                newAttachment: attachment,
+                              );
+
+                              if (attachmentsToAdd != null) {
+                                setState(() {
+                                  final newAttachments = List<ActivityAttachment>.from(existingAttachments);
+                                  newAttachments.addAll(attachmentsToAdd);
+                                  _editableActivities[index] = activity.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
+                                });
                               }
-                              setState(() {
-                                final newAttachments = List<ActivityAttachment>.from(existingAttachments);
-                                newAttachments.add(attachment);
-                                _editableActivities[index] = activity.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
-                              });
                             }
                           } catch (e) {
                             if (mounted) {
@@ -2183,23 +2220,17 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
     try {
       final attachment = await AttachmentService.pickAttachment();
       if (attachment != null && mounted) {
-        // Check size limit before adding
-        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
-          // Try adding just thumbnail if full attachment is too large
-          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
-            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
-            setState(() {
-              _attachments.add(thumbnailOnly);
-            });
-            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
-          } else {
-            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
-          }
-          return;
+        final attachmentsToAdd = AttachmentService.tryAddAttachment(
+          context: context,
+          existingAttachments: _attachments,
+          newAttachment: attachment,
+        );
+
+        if (attachmentsToAdd != null) {
+          setState(() {
+            _attachments.addAll(attachmentsToAdd);
+          });
         }
-        setState(() {
-          _attachments.add(attachment);
-        });
       }
     } catch (e) {
       if (mounted) {

@@ -518,9 +518,9 @@ class ExcelExportService {
     final db = await LocalDB.database;
     final logs = await db.query('workout_logs', orderBy: 'date ASC');
 
-    // Collect all activity attachments (combine duplicates by date + activity name)
+    // Collect all activity attachments (group by date + activity name + completedAt)
     // First collect activities with combined attachments
-    Map<String, Map<String, List<dynamic>>> attachmentsByActivity = {};
+    Map<String, Map<String, dynamic>> attachmentsByActivity = {};
 
     for (var log in logs) {
       final dateStr = log['date'] as String;
@@ -534,12 +534,15 @@ class ExcelExportService {
 
             // Check if activity has attachments
             if (activity.attachments != null && activity.attachments!.isNotEmpty) {
-              final key = '$dateStr|${activity.name}';
+              // Include completedAt in the key for unique identification
+              final completedAtStr = activity.completedAt?.toIso8601String() ?? '';
+              final key = '$dateStr|${activity.name}|$completedAtStr';
               if (!attachmentsByActivity.containsKey(key)) {
                 attachmentsByActivity[key] = {
-                  'date': [dateStr],
-                  'activityName': [activity.name],
-                  'attachments': [],
+                  'date': dateStr,
+                  'activityName': activity.name,
+                  'completedAt': completedAtStr.isNotEmpty ? completedAtStr : null,
+                  'attachments': <dynamic>[],
                 };
               }
               (attachmentsByActivity[key]!['attachments'] as List).addAll(activity.attachments!);
@@ -552,14 +555,16 @@ class ExcelExportService {
     // Flatten to list of attachment records
     final attachments = <Map<String, dynamic>>[];
     for (var entry in attachmentsByActivity.entries) {
-      final dateStr = (entry.value['date'] as List).first as String;
-      final activityName = (entry.value['activityName'] as List).first as String;
+      final dateStr = entry.value['date'] as String;
+      final activityName = entry.value['activityName'] as String;
+      final completedAt = entry.value['completedAt'] as String?;
       final activityAttachments = entry.value['attachments'] as List;
 
       for (var attachment in activityAttachments) {
         attachments.add({
           'date': dateStr,
           'activityName': activityName,
+          'completedAt': completedAt,
           'fileName': attachment.fileName,
           'mimeType': attachment.mimeType,
           'originalSize': attachment.originalSizeBytes,
@@ -571,7 +576,7 @@ class ExcelExportService {
 
     if (attachments.isEmpty) {
       // Create empty sheet with headers only
-      final headers = ['Date', 'Activity', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
+      final headers = ['Date', 'Activity', 'CompletedAt', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
       for (int i = 0; i < headers.length; i++) {
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
           ..value = TextCellValue(headers[i])
@@ -581,7 +586,7 @@ class ExcelExportService {
     }
 
     // Build header row
-    final headers = ['Date', 'Activity', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
+    final headers = ['Date', 'Activity', 'CompletedAt', 'FileName', 'MIMEType', 'OriginalSize', 'ThumbnailBase64', 'FullFileBase64'];
     for (int i = 0; i < headers.length; i++) {
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
         ..value = TextCellValue(headers[i])
@@ -607,18 +612,20 @@ class ExcelExportService {
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIdx + 1))
         .value = TextCellValue(attachment['activityName'] as String);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIdx + 1))
-        .value = TextCellValue(attachment['fileName'] as String);
+        .value = TextCellValue(attachment['completedAt'] as String? ?? '');
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIdx + 1))
-        .value = TextCellValue(attachment['mimeType'] as String);
+        .value = TextCellValue(attachment['fileName'] as String);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIdx + 1))
+        .value = TextCellValue(attachment['mimeType'] as String);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rowIdx + 1))
         .value = IntCellValue(attachment['originalSize'] as int);
 
       // Thumbnail is always exported (already checked above)
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rowIdx + 1))
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: rowIdx + 1))
         .value = TextCellValue(thumbnailBase64);
 
       // Only export full file if within size limit
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: rowIdx + 1))
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rowIdx + 1))
         .value = TextCellValue(
           fullFileBase64 != null && fullFileBase64.length <= maxBase64Length
             ? fullFileBase64

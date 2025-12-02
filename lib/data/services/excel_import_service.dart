@@ -10,6 +10,7 @@ import '../models/custom_exercise_preferences.dart';
 import '../models/exercise_model.dart';
 import '../widgets/import_dialog.dart';
 import 'localdb_service.dart';
+import 'attachment_service.dart';
 
 class ExcelImportService {
   /// Import workout data from XLSX file with user selection
@@ -528,30 +529,75 @@ class ExcelImportService {
       }
 
       if (activities.isNotEmpty) {
-        final activityData = {
-          'isActivity': true,
-          'activities': activities,
-        };
-
         // Check if entry exists for this date
         final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
 
         if (existing.isNotEmpty) {
-          // Merge with existing
+          // Merge with existing - deduplicate activities
           final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
           final existingTargetArea = existing.first['target_area'] as String;
 
-          final activityLabel = muscleGroupToString(MuscleGroup.otherActivity);
-          final newTargetArea = existingTargetArea.contains(activityLabel)
-              ? existingTargetArea
-              : '$existingTargetArea + $activityLabel';
+          // Find existing activity entry for this muscle group
+          Map<String, dynamic>? existingActivityEntry;
+          int? existingActivityIndex;
+          for (int i = 0; i < existingExercises.length; i++) {
+            final item = existingExercises[i];
+            if (item is Map && item['isActivity'] == true) {
+              existingActivityEntry = item as Map<String, dynamic>;
+              existingActivityIndex = i;
+              break;
+            }
+          }
 
-          await db.update('workout_logs', {
-            'target_area': newTargetArea,
-            'exercises': jsonEncode([...existingExercises, activityData]),
-          }, where: 'date = ?', whereArgs: [date]);
+          if (existingActivityEntry != null) {
+            // Merge activities, deduplicating by name and completedAt
+            final existingActivitiesList = existingActivityEntry['activities'] as List;
+            final mergedActivities = List<Map<String, dynamic>>.from(existingActivitiesList);
+
+            for (final newActivity in activities) {
+              // Check if this activity already exists (match by name and completedAt)
+              final isDuplicate = mergedActivities.any((existing) {
+                final nameMatch = existing['name'] == newActivity['name'];
+                final completedAtMatch = existing['completedAt'] == newActivity['completedAt'];
+                return nameMatch && completedAtMatch;
+              });
+
+              if (!isDuplicate) {
+                mergedActivities.add(newActivity);
+              }
+            }
+
+            // Update the activity entry with merged list
+            existingActivityEntry['activities'] = mergedActivities;
+            existingExercises[existingActivityIndex!] = existingActivityEntry;
+
+            await db.update('workout_logs', {
+              'exercises': jsonEncode(existingExercises),
+            }, where: 'date = ?', whereArgs: [date]);
+          } else {
+            // No existing activity entry, append new one
+            final activityData = {
+              'isActivity': true,
+              'activities': activities,
+            };
+
+            final activityLabel = muscleGroupToString(MuscleGroup.otherActivity);
+            final newTargetArea = existingTargetArea.contains(activityLabel)
+                ? existingTargetArea
+                : '$existingTargetArea + $activityLabel';
+
+            await db.update('workout_logs', {
+              'target_area': newTargetArea,
+              'exercises': jsonEncode([...existingExercises, activityData]),
+            }, where: 'date = ?', whereArgs: [date]);
+          }
         } else {
           // Insert new
+          final activityData = {
+            'isActivity': true,
+            'activities': activities,
+          };
+
           await db.insert('workout_logs', {
             'date': date,
             'target_area': muscleGroupToString(MuscleGroup.otherActivity),
@@ -720,18 +766,43 @@ class ExcelImportService {
 
     final db = await LocalDB.database;
 
-    // Group attachments by date and activity
-    final attachmentsByDateAndActivity = <String, Map<String, List<Map<String, dynamic>>>>{};
+    // Check if this export has the completedAt column (backwards compatibility)
+    final hasCompletedAtColumn = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 0))
+      .value?.toString().toLowerCase().contains('completed') ?? false;
+
+    // Group attachments by date, activity name, and completedAt
+    final attachmentsByDateAndActivity = <String, Map<String, Map<String, dynamic>>>{};
 
     // Skip header row
     for (int i = 1; i < sheet.maxRows; i++) {
       final date = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i)).value?.toString();
       final activityName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i)).value?.toString();
-      final fileName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i)).value?.toString();
-      final mimeType = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i)).value?.toString();
-      final originalSizeStr = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i)).value?.toString();
-      final thumbnailBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i)).value?.toString();
-      final fullFileBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i)).value?.toString();
+
+      // Parse columns based on format (new format has completedAt, old format doesn't)
+      final String? completedAt;
+      final String? fileName;
+      final String? mimeType;
+      final String? originalSizeStr;
+      final String? thumbnailBase64;
+      final String? fullFileBase64;
+
+      if (hasCompletedAtColumn) {
+        // New format: includes completedAt column
+        completedAt = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i)).value?.toString();
+        fileName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i)).value?.toString();
+        mimeType = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i)).value?.toString();
+        originalSizeStr = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i)).value?.toString();
+        thumbnailBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i)).value?.toString();
+        fullFileBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: i)).value?.toString();
+      } else {
+        // Old format: no completedAt column
+        completedAt = null;
+        fileName = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i)).value?.toString();
+        mimeType = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i)).value?.toString();
+        originalSizeStr = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i)).value?.toString();
+        thumbnailBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i)).value?.toString();
+        fullFileBase64 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i)).value?.toString();
+      }
 
       if (date == null || activityName == null || fileName == null || mimeType == null ||
           thumbnailBase64 == null || thumbnailBase64.isEmpty) {
@@ -749,19 +820,27 @@ class ExcelImportService {
         'originalSizeBytes': originalSize,
       };
 
+      // Create unique key: name + completedAt (if available)
+      final completedAtKey = (completedAt != null && completedAt.isNotEmpty) ? completedAt : '';
+      final activityKey = '$activityName|$completedAtKey';
+
       if (!attachmentsByDateAndActivity.containsKey(date)) {
         attachmentsByDateAndActivity[date] = {};
       }
-      if (!attachmentsByDateAndActivity[date]!.containsKey(activityName)) {
-        attachmentsByDateAndActivity[date]![activityName] = [];
+      if (!attachmentsByDateAndActivity[date]!.containsKey(activityKey)) {
+        attachmentsByDateAndActivity[date]![activityKey] = {
+          'activityName': activityName,
+          'completedAt': completedAtKey.isNotEmpty ? completedAtKey : null,
+          'attachments': <Map<String, dynamic>>[],
+        };
       }
-      attachmentsByDateAndActivity[date]![activityName]!.add(attachmentData);
+      (attachmentsByDateAndActivity[date]![activityKey]!['attachments'] as List).add(attachmentData);
     }
 
     // Update activities in database with attachments
     for (var dateEntry in attachmentsByDateAndActivity.entries) {
       final date = dateEntry.key;
-      final activitiesByName = dateEntry.value;
+      final activitiesByKey = dateEntry.value;
 
       // Get existing workout log for this date
       final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
@@ -773,6 +852,9 @@ class ExcelImportService {
       final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
       bool modified = false;
 
+      // Track which activity keys have already been matched and processed
+      final processedActivityKeys = <String>{};
+
       // Find activity entries and add attachments
       for (int i = 0; i < existingExercises.length; i++) {
         final item = existingExercises[i];
@@ -782,11 +864,110 @@ class ExcelImportService {
           for (int j = 0; j < activities.length; j++) {
             final activityData = activities[j] as Map<String, dynamic>;
             final activityName = activityData['name'] as String;
+            final activityCompletedAt = activityData['completedAt'] as String?;
 
-            if (activitiesByName.containsKey(activityName)) {
-              // Add attachments to this activity
-              activityData['attachments'] = activitiesByName[activityName];
-              modified = true;
+            // Try to match by name + completedAt first
+            String? matchedKey;
+
+            // If activity has completedAt, try exact match
+            if (activityCompletedAt != null && activityCompletedAt.isNotEmpty) {
+              final exactKey = '$activityName|$activityCompletedAt';
+              if (activitiesByKey.containsKey(exactKey) && !processedActivityKeys.contains(exactKey)) {
+                matchedKey = exactKey;
+              }
+            }
+
+            // Fallback: match by name only (for activities without completedAt or no exact match)
+            if (matchedKey == null) {
+              final nameOnlyKey = '$activityName|';
+              if (activitiesByKey.containsKey(nameOnlyKey) && !processedActivityKeys.contains(nameOnlyKey)) {
+                matchedKey = nameOnlyKey;
+              }
+            }
+
+            if (matchedKey != null) {
+              // Mark this key as processed
+              processedActivityKeys.add(matchedKey);
+              final importedAttachments = (activitiesByKey[matchedKey]!['attachments'] as List).cast<Map<String, dynamic>>();
+              List<Map<String, dynamic>> finalAttachments;
+
+              if (replace) {
+                // Replace mode: Use only imported attachments
+                finalAttachments = importedAttachments;
+              } else {
+                // Merge mode: Combine existing and imported, deduplicating by fileName
+                final existingAttachments = activityData['attachments'] as List?;
+                final existingList = existingAttachments?.cast<Map<String, dynamic>>() ?? [];
+
+                // Start with existing attachments
+                finalAttachments = List<Map<String, dynamic>>.from(existingList);
+
+                // Add imported attachments if not already present (deduplicate by fileName)
+                for (final importedAtt in importedAttachments) {
+                  final fileName = importedAtt['fileName'] as String;
+                  final isDuplicate = finalAttachments.any((existing) =>
+                    existing['fileName'] == fileName
+                  );
+
+                  if (!isDuplicate) {
+                    finalAttachments.add(importedAtt);
+                  }
+                }
+              }
+
+              // Validate total size of final attachments list
+              int totalSize = 0;
+              for (var att in finalAttachments) {
+                totalSize += (att['thumbnailBase64'] as String).length;
+                final fullFile = att['fullFileBase64'] as String?;
+                if (fullFile != null) {
+                  totalSize += fullFile.length;
+                }
+              }
+
+              // Check if total size exceeds SQLite limit
+              if (totalSize > AttachmentService.maxTotalAttachmentsBase64Size) {
+                // Try removing full files, keeping only thumbnails
+                final thumbnailOnlyList = finalAttachments.map((att) {
+                  return {
+                    'fileName': att['fileName'],
+                    'mimeType': att['mimeType'],
+                    'thumbnailBase64': att['thumbnailBase64'],
+                    'fullFileBase64': null, // Remove full file
+                    'attachedDate': att['attachedDate'],
+                    'originalSizeBytes': att['originalSizeBytes'],
+                  };
+                }).toList();
+
+                // Recalculate size with thumbnails only
+                int thumbnailOnlySize = 0;
+                for (var att in thumbnailOnlyList) {
+                  thumbnailOnlySize += (att['thumbnailBase64'] as String).length;
+                }
+
+                if (thumbnailOnlySize <= AttachmentService.maxTotalAttachmentsBase64Size) {
+                  // Use thumbnail-only version
+                  activityData['attachments'] = thumbnailOnlyList;
+                  modified = true;
+                  print('Warning: Imported attachments for "$activityName" on $date as thumbnail-only to stay within size limits');
+                } else {
+                  // Cannot merge - would exceed limit even with thumbnails only
+                  // Keep existing attachments and skip importing new ones
+                  if (replace) {
+                    // In replace mode, clear attachments if they can't fit
+                    activityData['attachments'] = null;
+                    modified = true;
+                    print('Warning: Cleared attachments for "$activityName" on $date - exceeds size limit even with thumbnails only');
+                  } else {
+                    // In merge mode, keep existing attachments, skip importing new ones
+                    print('Warning: Skipped importing attachments for "$activityName" on $date - would exceed size limit when merged with existing');
+                  }
+                }
+              } else {
+                // Size is fine, use final merged/replaced list
+                activityData['attachments'] = finalAttachments;
+                modified = true;
+              }
             }
           }
         }

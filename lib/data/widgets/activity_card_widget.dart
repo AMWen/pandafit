@@ -7,6 +7,7 @@ import '../models/activity_model.dart';
 import '../models/activity_attachment.dart';
 import '../services/activity_preferences_service.dart';
 import '../services/attachment_service.dart';
+import '../../utils/ui_helpers.dart';
 import 'attachment_viewer.dart';
 
 class ActivityCard extends StatelessWidget {
@@ -14,6 +15,7 @@ class ActivityCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onEdit;
   final bool isReadOnly;
+  final Function(List<ActivityAttachment>)? onAttachmentsChanged;
 
   const ActivityCard({
     super.key,
@@ -21,6 +23,7 @@ class ActivityCard extends StatelessWidget {
     this.onDelete,
     this.onEdit,
     this.isReadOnly = false,
+    this.onAttachmentsChanged,
   });
 
   void _viewAttachments(BuildContext context) {
@@ -31,6 +34,7 @@ class ActivityCard extends StatelessWidget {
           builder: (context) => AttachmentViewer(
             attachments: activity.attachments!,
             activityName: activity.name,
+            onAttachmentsChanged: onAttachmentsChanged,
           ),
         ),
       );
@@ -158,6 +162,7 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
   FocusNode? _autocompleteFocusNode;
   TextEditingController? _autocompleteController;
   final List<ActivityAttachment> _attachments = [];
+  bool _isProcessingAttachment = false;
 
   @override
   void initState() {
@@ -187,21 +192,35 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
   }
 
   Future<void> _pickAttachment() async {
+    setState(() => _isProcessingAttachment = true);
     try {
       final attachment = await AttachmentService.pickAttachment();
-      if (attachment != null) {
+      if (attachment != null && mounted) {
+        // Check size limit before adding
+        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
+          // Try adding just thumbnail if full attachment is too large
+          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
+            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
+            setState(() {
+              _attachments.add(thumbnailOnly);
+            });
+            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
+          } else {
+            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
+          }
+          return;
+        }
         setState(() {
           _attachments.add(attachment);
         });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error adding attachment: $e'),
-            backgroundColor: ActionColors.error,
-          ),
-        );
+        showSnackbar(context, 'Error adding attachment: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessingAttachment = false);
       }
     }
   }
@@ -389,9 +408,21 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                     ),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _pickAttachment,
-                    icon: Icon(Icons.attach_file, size: 18, color: secondaryColor),
-                    label: Text('Add File', style: TextStyle(color: secondaryColor)),
+                    onPressed: _isProcessingAttachment ? null : _pickAttachment,
+                    icon: _isProcessingAttachment
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(secondaryColor.withValues(alpha: 0.5)),
+                            ),
+                          )
+                        : Icon(Icons.attach_file, size: 18, color: secondaryColor),
+                    label: Text(
+                      _isProcessingAttachment ? 'Processing...' : 'Add File',
+                      style: TextStyle(color: secondaryColor),
+                    ),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: secondaryColor.withValues(alpha: 0.5)),
                       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),

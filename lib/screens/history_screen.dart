@@ -69,10 +69,11 @@ class HistoryScreenState extends State<HistoryScreen>
   }
 
   Future<void> _loadWorkoutDates() async {
-    final db = await LocalDB.database;
-    final logs = await db.query('workout_logs');
+    try {
+      final db = await LocalDB.database;
+      final logs = await db.query('workout_logs');
 
-    final Map<DateTime, List<String>> dates = {};
+      final Map<DateTime, List<String>> dates = {};
 
     for (var log in logs) {
       try {
@@ -118,11 +119,61 @@ class HistoryScreenState extends State<HistoryScreen>
       }
     }
 
-    if (mounted) {
-      setState(() {
-        _workoutDates.clear();
-        _workoutDates.addAll(dates);
-      });
+      if (mounted) {
+        setState(() {
+          _workoutDates.clear();
+          _workoutDates.addAll(dates);
+        });
+      }
+    } catch (e) {
+      // Handle database errors (e.g., row too big for CursorWindow)
+      if (mounted) {
+        setState(() {
+          _workoutDates.clear();
+        });
+        // Show error to user
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading workout history. Database may contain corrupted data.'),
+            backgroundColor: ActionColors.error,
+            duration: Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Clear Data',
+              textColor: Colors.white,
+              onPressed: () async {
+                // Offer to clear the problematic data
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text('Clear Corrupted Data?', style: TextStyles.dialogTitle),
+                    content: Text('This will delete all workout history to fix the database. This cannot be undone.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: Text('Clear', style: TextStyle(color: ActionColors.delete)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  final db = await LocalDB.database;
+                  await db.delete('workout_logs');
+                  if (mounted) {
+                    // Refresh both calendar and table data
+                    _loadWorkoutDates();
+                    _loadProgressData();
+                    showSnackbar(context, 'Workout history cleared');
+                  }
+                }
+              },
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -872,6 +923,11 @@ class HistoryScreenState extends State<HistoryScreen>
         originalHadActivities: true,
         newActivities: updatedActivities,
       );
+
+      // Refresh progress data to update table view
+      if (mounted) {
+        _loadProgressData();
+      }
     } catch (e) {
       if (mounted) {
         showSnackbar(context, 'Error saving attachment: $e', isError: true);
@@ -1008,6 +1064,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
   late TabController _tabController;
   late int _totalTabs;
   bool _isEditing = false;
+  bool _isProcessingAttachment = false;
 
   // Editable data
   late Map<MuscleGroup, List<Exercise>> _editableWorkouts;
@@ -1072,8 +1129,8 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
 
       // Update local state to reflect changes in the dialog UI
       setState(() {
-        _editableActivities[activityIndex] = _editableActivities[activityIndex].copyWith(
-          attachments: newAttachments.isEmpty ? null : newAttachments,
+        _editableActivities[activityIndex] = _editableActivities[activityIndex].replaceAttachments(
+          newAttachments.isEmpty ? null : newAttachments,
         );
         _currentSavedActivities = _editableActivities.map((a) => a.copyWith()).toList();
       });
@@ -1373,24 +1430,52 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                       Text('Attachments:', style: TextStyles.normalText),
                       SizedBox(width: 8),
                       OutlinedButton.icon(
-                        onPressed: () async {
+                        onPressed: _isProcessingAttachment ? null : () async {
+                          setState(() => _isProcessingAttachment = true);
                           try {
                             final attachment = await AttachmentService.pickAttachment();
-                            if (attachment != null) {
+                            if (attachment != null && mounted) {
+                              final existingAttachments = activity.attachments ?? [];
+                              // Check size limit before adding
+                              if (!AttachmentService.canAddAttachment(existingAttachments, attachment)) {
+                                // Try adding just thumbnail if full attachment is too large
+                                if (AttachmentService.canAddThumbnailOnly(existingAttachments, attachment)) {
+                                  final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
+                                  setState(() {
+                                    final newAttachments = List<ActivityAttachment>.from(existingAttachments);
+                                    newAttachments.add(thumbnailOnly);
+                                    _editableActivities[index] = activity.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
+                                  });
+                                  showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
+                                } else {
+                                  showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
+                                }
+                                return;
+                              }
                               setState(() {
-                                final newAttachments = List<ActivityAttachment>.from(activity.attachments ?? []);
+                                final newAttachments = List<ActivityAttachment>.from(existingAttachments);
                                 newAttachments.add(attachment);
-                                _editableActivities[index] = activity.copyWith(attachments: newAttachments);
+                                _editableActivities[index] = activity.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
                               });
                             }
                           } catch (e) {
                             if (mounted) {
                               showSnackbar(context, 'Error adding attachment: $e', isError: true);
                             }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isProcessingAttachment = false);
+                            }
                           }
                         },
-                        icon: Icon(Icons.attach_file, size: 16),
-                        label: Text('Add'),
+                        icon: _isProcessingAttachment
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(Icons.attach_file, size: 16),
+                        label: Text(_isProcessingAttachment ? 'Processing...' : 'Add'),
                         style: smallButtonStyle,
                       ),
                     ],
@@ -1858,7 +1943,7 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete Workout'),
+        title: Text('Delete Workout', style: TextStyles.dialogTitle),
         content: Text('Are you sure you want to delete the entire $workoutName workout for this date?'),
         actions: [
           TextButton(
@@ -2068,6 +2153,7 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
   final _notesController = TextEditingController();
   final List<ActivityAttachment> _attachments = [];
   List<String> _previousActivityNames = [];
+  bool _isProcessingAttachment = false;
 
   @override
   void initState() {
@@ -2093,9 +2179,24 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
   }
 
   Future<void> _pickAttachment() async {
+    setState(() => _isProcessingAttachment = true);
     try {
       final attachment = await AttachmentService.pickAttachment();
-      if (attachment != null) {
+      if (attachment != null && mounted) {
+        // Check size limit before adding
+        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
+          // Try adding just thumbnail if full attachment is too large
+          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
+            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
+            setState(() {
+              _attachments.add(thumbnailOnly);
+            });
+            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
+          } else {
+            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
+          }
+          return;
+        }
         setState(() {
           _attachments.add(attachment);
         });
@@ -2103,6 +2204,10 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
     } catch (e) {
       if (mounted) {
         showSnackbar(context, 'Error adding attachment: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessingAttachment = false);
       }
     }
   }
@@ -2144,7 +2249,7 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Add Activity'),
+      title: Text('Add Activity', style: TextStyles.dialogTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2213,9 +2318,15 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
               children: [
                 Text('Attachments', style: TextStyle(fontWeight: FontWeight.w500)),
                 OutlinedButton.icon(
-                  onPressed: _pickAttachment,
-                  icon: Icon(Icons.attach_file, size: 16),
-                  label: Text('Add File'),
+                  onPressed: _isProcessingAttachment ? null : _pickAttachment,
+                  icon: _isProcessingAttachment
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.attach_file, size: 16),
+                  label: Text(_isProcessingAttachment ? 'Processing...' : 'Add File'),
                   style: smallButtonStyle,
                 ),
               ],

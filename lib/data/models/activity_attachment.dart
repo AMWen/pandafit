@@ -3,19 +3,22 @@ import 'dart:convert';
 /// Represents a file attachment for an activity (PDF, image, etc.)
 ///
 /// Storage strategy:
-/// - Thumbnail: Always stored (≤20KB JPEG), for quick preview and Excel migration
-/// - Full file: Stored in app directory while on device, optionally in Excel if ≤50KB
+/// - Thumbnail: Always stored (≤50KB JPEG, 400x560), for quick preview
+/// - Full file: Original if <500KB, compressed to <1MB if ≥500KB, or null if too large
 class ActivityAttachment {
   final String fileName;
   final String mimeType;
 
-  /// Thumbnail preview (200x280 JPEG @ 60% quality, typically 15-25KB)
+  /// Thumbnail preview (400x560 JPEG, compressed to ≤50KB)
   /// For images: resized and compressed version
   /// For PDFs: first page rendered as JPEG
   final String thumbnailBase64;
 
-  /// Full file as base64 (only for small files ≤50KB for Excel migration)
-  /// Null for larger files - full file only stored in app directory
+  /// Stored file as base64 (may be original or compressed)
+  /// - Images <500KB: original file
+  /// - Images ≥500KB: compressed to <1MB
+  /// - PDFs <1MB: original file
+  /// - Null if file too large
   final String? fullFileBase64;
 
   final DateTime attachedDate;
@@ -83,6 +86,19 @@ class ActivityAttachment {
       fullFileBase64: fullFileBase64 ?? this.fullFileBase64,
       attachedDate: attachedDate ?? this.attachedDate,
       originalSizeBytes: originalSizeBytes ?? this.originalSizeBytes,
+    );
+  }
+
+  /// Create a thumbnail-only version (removes full file)
+  /// Use this instead of copyWith(fullFileBase64: null) which won't work due to ?? operator
+  ActivityAttachment clearFullFile() {
+    return ActivityAttachment(
+      fileName: fileName,
+      mimeType: mimeType,
+      thumbnailBase64: thumbnailBase64,
+      fullFileBase64: null,
+      attachedDate: attachedDate,
+      originalSizeBytes: originalSizeBytes,
     );
   }
 

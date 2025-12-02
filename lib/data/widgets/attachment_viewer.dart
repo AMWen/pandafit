@@ -4,6 +4,7 @@ import 'package:pdfx/pdfx.dart';
 import '../models/activity_attachment.dart';
 import '../constants.dart';
 import '../services/attachment_service.dart';
+import '../../utils/ui_helpers.dart';
 
 /// Widget to view and edit activity attachments
 class AttachmentViewer extends StatefulWidget {
@@ -24,6 +25,7 @@ class AttachmentViewer extends StatefulWidget {
 
 class _AttachmentViewerState extends State<AttachmentViewer> {
   late List<ActivityAttachment> _attachments;
+  bool _isProcessingAttachment = false;
 
   @override
   void initState() {
@@ -38,10 +40,36 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
     widget.onAttachmentsChanged?.call(_attachments);
   }
 
+  void _removeFullFile(int index) {
+    final attachment = _attachments[index];
+    if (attachment.fullFileBase64 != null) {
+      setState(() {
+        _attachments[index] = AttachmentService.createThumbnailOnly(attachment);
+      });
+      widget.onAttachmentsChanged?.call(_attachments);
+    }
+  }
+
   Future<void> _addAttachment() async {
+    setState(() => _isProcessingAttachment = true);
     try {
       final attachment = await AttachmentService.pickAttachment();
-      if (attachment != null) {
+      if (attachment != null && mounted) {
+        // Check size limit before adding
+        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
+          // Try adding just thumbnail if full attachment is too large
+          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
+            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
+            setState(() {
+              _attachments.add(thumbnailOnly);
+            });
+            widget.onAttachmentsChanged?.call(_attachments);
+            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
+          } else {
+            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
+          }
+          return;
+        }
         setState(() {
           _attachments.add(attachment);
         });
@@ -49,13 +77,11 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error adding attachment: $e'),
-            backgroundColor: ActionColors.error,
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
+        showSnackbar(context, 'Error adding attachment: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessingAttachment = false);
       }
     }
   }
@@ -71,9 +97,18 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
         actions: [
           if (isEditable)
             IconButton(
-              icon: Icon(Icons.add_photo_alternate),
-              onPressed: _addAttachment,
-              tooltip: 'Add attachment',
+              icon: _isProcessingAttachment
+                  ? SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Icon(Icons.add_photo_alternate),
+              onPressed: _isProcessingAttachment ? null : _addAttachment,
+              tooltip: _isProcessingAttachment ? 'Processing...' : 'Add attachment',
             ),
         ],
       ),
@@ -90,9 +125,15 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                   ),
                   SizedBox(height: 16),
                   OutlinedButton.icon(
-                    onPressed: _addAttachment,
-                    icon: Icon(Icons.add),
-                    label: Text('Add Attachment'),
+                    onPressed: _isProcessingAttachment ? null : _addAttachment,
+                    icon: _isProcessingAttachment
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(Icons.add),
+                    label: Text(_isProcessingAttachment ? 'Processing...' : 'Add Attachment'),
                     style: primaryButtonStyle,
                   ),
                 ],
@@ -107,6 +148,8 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                   attachment: attachment,
                   onTap: () => _viewAttachment(context, index),
                   onDelete: () => _deleteAttachment(index),
+                  onRemoveFullFile: () => _removeFullFile(index),
+                  hasFullFile: attachment.fullFileBase64 != null,
                 );
               },
             ),
@@ -123,6 +166,10 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
             Navigator.pop(context);
             _deleteAttachment(index);
           },
+          onRemoveFullFile: () {
+            Navigator.pop(context);
+            _removeFullFile(index);
+          },
         ),
       ),
     );
@@ -133,12 +180,16 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
 class _AttachmentCard extends StatelessWidget {
   final ActivityAttachment attachment;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
+  final VoidCallback? onRemoveFullFile;
+  final bool hasFullFile;
 
   const _AttachmentCard({
     required this.attachment,
     required this.onTap,
-    required this.onDelete,
+    this.onDelete,
+    this.onRemoveFullFile,
+    required this.hasFullFile,
   });
 
   @override
@@ -219,31 +270,15 @@ class _AttachmentCard extends StatelessWidget {
                 onPressed: () {
                   showDialog(
                     context: context,
-                    builder: (context) => AlertDialog(
-                      title: Text('Delete Attachment'),
-                      content: Text('Are you sure you want to delete this attachment?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            onDelete();
-                          },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: ActionColors.delete,
-                          ),
-                          child: Text('Delete'),
-                        ),
-                      ],
+                    builder: (context) => _AttachmentDeleteDialog(
+                      attachment: attachment,
+                      onDelete: onDelete!,
+                      onRemoveFullFile: onRemoveFullFile,
                     ),
                   );
                 },
                 tooltip: 'Delete attachment',
               ),
-              Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
         ),
@@ -256,10 +291,12 @@ class _AttachmentCard extends StatelessWidget {
 class _FullAttachmentView extends StatefulWidget {
   final ActivityAttachment attachment;
   final VoidCallback onDelete;
+  final VoidCallback onRemoveFullFile;
 
   const _FullAttachmentView({
     required this.attachment,
     required this.onDelete,
+    required this.onRemoveFullFile,
   });
 
   @override
@@ -297,12 +334,7 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
       _pdfController?.dispose();
       _pdfController = null;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Unable to load PDF viewer. Showing preview instead.'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        showSnackbar(context, 'Unable to load PDF viewer. Showing preview instead.');
       }
     } finally {
       if (mounted) {
@@ -337,25 +369,10 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
             onPressed: () {
               showDialog(
                 context: context,
-                builder: (context) => AlertDialog(
-                  title: Text('Delete Attachment'),
-                  content: Text('Are you sure you want to delete this attachment?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text('Cancel'),
-                    ),
-                    FilledButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        widget.onDelete();
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: ActionColors.delete,
-                      ),
-                      child: Text('Delete'),
-                    ),
-                  ],
+                builder: (context) => _AttachmentDeleteDialog(
+                  attachment: widget.attachment,
+                  onDelete: widget.onDelete,
+                  onRemoveFullFile: widget.onRemoveFullFile,
                 ),
               );
             },
@@ -473,14 +490,14 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
                         icon: Icons.data_usage,
                         label: hasStoredFile
                             ? AttachmentService.formatFileSize(storedFileSize)
-                            : AttachmentService.formatFileSize(widget.attachment.originalSizeBytes),
+                            : AttachmentService.formatFileSize((widget.attachment.thumbnailBase64.length * 3 / 4).round()),
                       ),
                       SizedBox(width: 8),
                       _InfoChip(
                         icon: hasStoredFile ? Icons.check_circle : Icons.image,
                         label: hasStoredFile
                             ? (storedFileSize < widget.attachment.originalSizeBytes ? 'Compressed' : 'Stored')
-                            : 'Thumbnail only',
+                            : 'Thumbnail',
                         color: hasStoredFile ? Colors.green : Colors.orange,
                       ),
                     ],
@@ -491,6 +508,61 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Reusable delete attachment dialog
+class _AttachmentDeleteDialog extends StatelessWidget {
+  final ActivityAttachment attachment;
+  final VoidCallback onDelete;
+  final VoidCallback? onRemoveFullFile;
+
+  const _AttachmentDeleteDialog({
+    required this.attachment,
+    required this.onDelete,
+    this.onRemoveFullFile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFullFile = attachment.fullFileBase64 != null;
+
+    return AlertDialog(
+      title: Text('Delete Attachment', style: TextStyles.dialogTitle),
+      content: Text(hasFullFile && onRemoveFullFile != null
+          ? 'What would you like to do with this attachment?'
+          : 'Are you sure you want to delete this attachment?'),
+      actions: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            // Show "Remove full file" option if attachment has full file
+            if (hasFullFile && onRemoveFullFile != null)
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onRemoveFullFile!();
+                },
+                child: Text('Remove full file', style: TextStyle(color: Colors.orange)),
+              ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                onDelete();
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: ActionColors.delete,
+              ),
+              child: Text('Delete'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

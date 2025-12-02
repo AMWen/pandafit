@@ -16,13 +16,26 @@ import '../models/activity_attachment.dart';
 // Storage strategy:
 // - Thumbnail: ≤50KB for export/import, 400x560 dimensions
 // - Full file: Stored if original < 500KB
-// - Compressed file: If original ≥500KB, compress to <1MB with variable quality
+// - Compressed file: If original ≥500KB, compress to <600KB with variable quality
 class AttachmentService {
   static const int maxThumbnailSize = 50 * 1024; // 50KB for export/import
   static const int maxFullFileSizeUncompressed = 500 * 1024; // 500KB - store as-is
-  static const int maxCompressedFileSize = 1024 * 1024; // 1MB - compression target
+  static const int maxCompressedFileSize = 600 * 1024; // 600KB - compression target
   static const int thumbnailWidth = 400;
   static const int thumbnailHeight = 560;
+
+  // Maximum total base64 size for all attachments in a single activity (1.5MB)
+  // This prevents SQLite row size limits (2MB CursorWindow) from being exceeded
+  static const int maxTotalAttachmentsBase64Size = 1850 * 1024; // 1.5MB total
+
+  // Error message for size limit exceeded
+  static String get sizeExceededErrorMessage {
+    final limitMB = maxTotalAttachmentsBase64Size / (1024 * 1024);
+    return 'Cannot add attachment: total size would exceed ${limitMB.toStringAsFixed(1)} MB limit per activity';
+  }
+
+  // Warning message when thumbnail-only is added
+  static const String thumbnailOnlyWarning = 'Attachment added (preview only) - full file too large for database limit';
 
   // Pick and process a file attachment
   // Returns null if user cancels or error occurs
@@ -264,6 +277,44 @@ class AttachmentService {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  // Calculate total base64 size of all attachments
+  static int calculateTotalAttachmentSize(List<ActivityAttachment> attachments) {
+    int totalSize = 0;
+    for (final attachment in attachments) {
+      totalSize += attachment.thumbnailBase64.length;
+      if (attachment.fullFileBase64 != null) {
+        totalSize += attachment.fullFileBase64!.length;
+      }
+    }
+    return totalSize;
+  }
+
+  // Check if adding a new attachment would exceed the size limit
+  static bool canAddAttachment(
+    List<ActivityAttachment> existingAttachments,
+    ActivityAttachment newAttachment,
+  ) {
+    final currentSize = calculateTotalAttachmentSize(existingAttachments);
+    final newSize = newAttachment.thumbnailBase64.length +
+        (newAttachment.fullFileBase64?.length ?? 0);
+    return (currentSize + newSize) <= maxTotalAttachmentsBase64Size;
+  }
+
+  // Check if adding just the thumbnail would fit
+  static bool canAddThumbnailOnly(
+    List<ActivityAttachment> existingAttachments,
+    ActivityAttachment newAttachment,
+  ) {
+    final currentSize = calculateTotalAttachmentSize(existingAttachments);
+    final thumbnailSize = newAttachment.thumbnailBase64.length;
+    return (currentSize + thumbnailSize) <= maxTotalAttachmentsBase64Size;
+  }
+
+  // Create a thumbnail-only version of an attachment (removes full file)
+  static ActivityAttachment createThumbnailOnly(ActivityAttachment attachment) {
+    return attachment.clearFullFile();
   }
 }
 

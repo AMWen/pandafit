@@ -1180,7 +1180,7 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Add Activity'),
+      title: Text('Add Activity', style: TextStyles.dialogTitle),
       content: Form(
         key: _formKey,
         child: Column(
@@ -1291,7 +1291,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete Activity'),
+        title: Text('Delete Activity', style: TextStyles.dialogTitle),
         content: Text('Are you sure you want to delete "${widget.activity.name}"?'),
         actions: [
           TextButton(
@@ -1315,7 +1315,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Edit Activity'),
+      title: Text('Edit Activity', style: TextStyles.dialogTitle),
       content: Form(
         key: _formKey,
         child: Column(

@@ -626,6 +626,41 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _handleCompletedActivityAttachmentChanges(Activity activity, List<ActivityAttachment> newAttachments) async {
+    try {
+      // Get current activities from database
+      final activityRoutine = await LocalDB.getActivitiesForDate(today);
+      if (activityRoutine == null) return;
+
+      // Find and update the specific activity
+      final updatedActivities = activityRoutine.activities.map((a) {
+        if (a.completedAt == activity.completedAt) {
+          return a.replaceAttachments(newAttachments.isEmpty ? null : newAttachments);
+        }
+        return a;
+      }).toList();
+
+      // Save to database
+      await LocalDB.updateWorkoutsForDate(
+        date: today.toIso8601String().substring(0, 10),
+        originalMuscleGroups: {},
+        newWorkoutsByGroup: {},
+        originalHadCore: false,
+        newCoreWorkout: null,
+        originalHadActivities: true,
+        newActivities: updatedActivities,
+      );
+
+      // Reload completed activities to show changes
+      final refreshedRoutine = await LocalDB.getActivitiesForDate(today);
+      setState(() {
+        completedActivitiesToday = refreshedRoutine;
+      });
+    } catch (e) {
+      _showSnackbar('Error updating attachments: $e');
+    }
+  }
+
   /// Launch URL externally (for search links) or inline (for direct video links)
   Future<void> _launchUrlExternal(String url, String exerciseName) async {
     if (url.isEmpty) {
@@ -1043,6 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return ActivityCard(
                   activity: activity,
                   isReadOnly: true,
+                  onAttachmentsChanged: (newAttachments) => _handleCompletedActivityAttachmentChanges(activity, newAttachments),
                 );
               },
             ),
@@ -1320,6 +1356,7 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
   late final TextEditingController _durationController;
   late final TextEditingController _notesController;
   late final List<ActivityAttachment> _attachments;
+  bool _isProcessingAttachment = false;
 
   @override
   void initState() {
@@ -1337,9 +1374,24 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
   }
 
   Future<void> _pickAttachment() async {
+    setState(() => _isProcessingAttachment = true);
     try {
       final attachment = await AttachmentService.pickAttachment();
-      if (attachment != null) {
+      if (attachment != null && mounted) {
+        // Check size limit before adding
+        if (!AttachmentService.canAddAttachment(_attachments, attachment)) {
+          // Try adding just thumbnail if full attachment is too large
+          if (AttachmentService.canAddThumbnailOnly(_attachments, attachment)) {
+            final thumbnailOnly = AttachmentService.createThumbnailOnly(attachment);
+            setState(() {
+              _attachments.add(thumbnailOnly);
+            });
+            showSnackbar(context, AttachmentService.thumbnailOnlyWarning, isError: true);
+          } else {
+            showSnackbar(context, AttachmentService.sizeExceededErrorMessage, isError: true);
+          }
+          return;
+        }
         setState(() {
           _attachments.add(attachment);
         });
@@ -1347,6 +1399,10 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
     } catch (e) {
       if (mounted) {
         showSnackbar(context, 'Error adding attachment: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessingAttachment = false);
       }
     }
   }
@@ -1403,9 +1459,17 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
               children: [
                 Text('Attachments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                 OutlinedButton.icon(
-                  onPressed: _pickAttachment,
-                  icon: Icon(Icons.attach_file, size: 18),
-                  label: Text('Add File'),
+                  onPressed: _isProcessingAttachment ? null : _pickAttachment,
+                  icon: _isProcessingAttachment
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Icon(Icons.attach_file, size: 18),
+                  label: Text(_isProcessingAttachment ? 'Processing...' : 'Add File'),
                   style: OutlinedButton.styleFrom(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),

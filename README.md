@@ -20,9 +20,11 @@ This app lets you generate personalized workouts for different muscle groups eac
 - **Exercise timer**: Built-in countdown timer for timed exercises (planks, holds) with progress indicator and audio alarm
 - **Activity tracking**: Tracks completed workouts by muscle group in a calendar view with color-coded dots
 - **Progress tracking**: View exercise history with weight and rep progression in the Upper Body and Lower Body tabs
+- **Editable history**: Modify past workouts directly from the history screen with inline editing
 - **Device migration**: Easily transfer all your workout data, custom exercises, and preferences to a new device
-  - **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 8 sheets (Upper Body, Lower Body, Core, Activities history, plus settings and preferences)
-  - **Selective data import**: Import dialog lets you choose which data to import (workout history, settings, custom exercises, etc.) with replace or merge options
+  - **Excel-based data export**: Export all workout data to organized Excel spreadsheets with 9 sheets (Upper Body, Lower Body, Core, Activities history, Activity Attachments, plus settings and preferences)
+  - **Selective data import**: Import dialog lets you choose which data to import (workout history for specific muscle groups, settings, custom exercises, etc.) with replace or merge options
+  - **Attachment migration**: Photos and PDFs exported with intelligent size limits for Excel compatibility
 - **Yesterday's catchup**: Core workouts allow completing yesterday's missed workout
 - **Video links**: Each exercise includes an in-app YouTube video link for proper form demonstration
 
@@ -117,6 +119,11 @@ Exercises without direct video links open YouTube search results in your externa
 ### Other Activities
 - Log non-traditional workouts and activities
 - Track activity name, duration (minutes), and optional notes
+- **Attachment support**: Attach photos and PDFs to activities (race bibs, certificates, progress photos)
+  - **Smart compression**: Images compressed to balance quality and file size (<1MB)
+  - **PDF viewer**: Scrollable, zoomable multi-page PDF viewing
+  - **Editable**: View, add, and delete attachments from the history screen
+  - **Export/import**: Attachments included in Excel exports (within size guardrail limitations)
 - Auto-complete from previously logged activities
 - Pre-fills usual duration for saved activities
 - Save incomplete activities for later completion
@@ -133,13 +140,15 @@ lib/
 │   │   ├── exercise_model.dart                # Upper/Lower body exercise & routine models
 │   │   ├── core_exercise_model.dart           # Core exercise & routine models
 │   │   ├── activity_model.dart                # Activity & routine models
+│   │   ├── activity_attachment.dart           # Attachment model with compression metadata
 │   │   ├── history_models.dart                # Shared models for exercise and activity history
 │   │   └── custom_exercise_preferences.dart   # Custom exercise preferences models
 │   ├── services/
 │   │   ├── localdb_service.dart               # SQLite database with all workout methods
-│   │   ├── excel_export_service.dart          # Excel export with 8 organized sheets
-│   │   ├── excel_import_service.dart          # Excel import with selective data loading
-│   │   ├── workout_generator.dart             # Upper/Lower body workout generator
+│   │   ├── excel_export_service.dart          # Excel export with 9 organized sheets
+│   │   ├── excel_import_service.dart          # Excel import with selective muscle group data loading
+│   │   ├── attachment_service.dart            # Photo/PDF processing with smart compression
+│   │   ├── workout_generator.dart             # Upper/Lower body workout generator with date seeding
 │   │   ├── core_workout_generator.dart        # Core workout generator with volume scaling
 │   │   ├── workout_preferences_service.dart   # Hive storage for workout customization
 │   │   └── activity_preferences_service.dart  # Hive storage for activity management
@@ -148,6 +157,7 @@ lib/
 │   │   ├── add_exercise_card_widget.dart      # Card for adding exercises during workout
 │   │   ├── core_workout_card_widget.dart      # Single card for all core exercises
 │   │   ├── activity_card_widget.dart          # Activity display and input widgets
+│   │   ├── attachment_viewer.dart             # Photo and PDF viewer with editing
 │   │   ├── countdown_widget.dart              # Timer widget for timed exercises
 │   │   ├── panda_streak_widget.dart           # Workout streak display
 │   │   ├── youtube_player_widget.dart         # YouTube player with PiP support
@@ -203,10 +213,11 @@ Workout customization data is stored using Hive for fast, local key-value storag
 - **User Activities** (`userActivities`): Saved activities with usual durations
 
 ### Excel Export Structure
-Data is exported to an XLSX file with 8 organized sheets for easy viewing and device migration:
+Data is exported to an XLSX file with 9 organized sheets for easy viewing and device migration:
 
 **Workout History Sheets:**
 - Upper Body, Lower Body, Core, Other Activities (date-based workout logs with exercises/weights/reps)
+- Activity Attachments (photos and PDFs with base64 encoding, size-limited for compatibility)
 
 **Settings & Preferences Sheets:**
 - Workout Settings (exercise counts per workout type)
@@ -217,5 +228,6 @@ Data is exported to an XLSX file with 8 organized sheets for easy viewing and de
 ### Data Format
 - **Regular exercises**: `{name, muscleGroup, targetMuscles, sets, reps, weight, completedSets, isSkipped, ...}`
 - **Core workouts**: `{isCore: true, sets, exercisesPerSet, exercises: [...]}`
-- **Activities**: `{isActivity: true, activities: [{name, durationMinutes, notes}, ...]}`
+- **Activities**: `{isActivity: true, activities: [{name, durationMinutes, notes, completedAt, attachments}, ...]}`
+- **Attachments**: `{fileName, mimeType, thumbnailBase64, fullFileBase64, originalSizeBytes, attachedDate}`
 - Multiple workout types can be stored for the same date by appending to the exercises array

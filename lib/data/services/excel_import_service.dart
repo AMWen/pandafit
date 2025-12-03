@@ -8,6 +8,7 @@ import 'package:hive/hive.dart';
 import '../constants.dart';
 import '../models/custom_exercise_preferences.dart';
 import '../models/exercise_model.dart';
+import '../models/activity_model.dart';
 import '../widgets/import_dialog.dart';
 import 'localdb_service.dart';
 import 'attachment_service.dart';
@@ -65,6 +66,7 @@ class ExcelImportService {
       final importAsReplace = options['importAsReplace'] as bool;
 
       int importCount = 0;
+      final warnings = <String>[]; // Collect warnings during import
 
       // Clear selected muscle groups in single pass if replacing
       if (importAsReplace) {
@@ -110,7 +112,8 @@ class ExcelImportService {
 
       // Import Activity Attachments
       if (selectedSheets[ExcelSheetNames.activityAttachments] == true) {
-        await _importActivityAttachments(excel, importAsReplace);
+        final attachmentWarnings = await _importActivityAttachments(excel, importAsReplace);
+        warnings.addAll(attachmentWarnings);
         importCount++;
       }
 
@@ -142,7 +145,11 @@ class ExcelImportService {
         return 'No data imported';
       }
 
-      return 'Successfully imported $importCount item(s)!';
+      String successMessage = 'Successfully imported $importCount item(s)!';
+      if (warnings.isNotEmpty) {
+        successMessage += '\n\nWarnings:\n${warnings.join('\n')}';
+      }
+      return successMessage;
     } catch (e) {
       return 'Error importing data: $e';
     }
@@ -153,53 +160,13 @@ class ExcelImportService {
     if (muscleGroups.isEmpty) return;
 
     final db = await LocalDB.database;
-    final logs = await db.query('workout_logs');
 
-    for (var log in logs) {
-      final date = log['date'] as String;
-      final exercisesJson = jsonDecode(log['exercises'] as String) as List;
-      final targetArea = log['target_area'] as String;
-
-      // Filter out exercises of all selected muscle groups
-      final filteredExercises = exercisesJson.where((item) {
-        if (item is Map) {
-          for (final muscleGroup in muscleGroups) {
-            // Check regular exercises
-            if (item['muscleGroup'] == muscleGroupToString(muscleGroup)) {
-              return false;
-            }
-            // Check activities (for otherActivity muscle group)
-            if (muscleGroup == MuscleGroup.otherActivity && item['isActivity'] == true) {
-              return false;
-            }
-            // Check core workouts
-            if (muscleGroup == MuscleGroup.core && item['isCore'] == true) {
-              return false;
-            }
-          }
-        }
-        return true;
-      }).toList();
-
-      if (filteredExercises.isEmpty) {
-        // Delete the entire log entry if no exercises remain
-        await db.delete('workout_logs', where: 'date = ?', whereArgs: [date]);
-      } else {
-        // Update target area by removing selected muscle groups
-        var newTargetArea = targetArea;
-        for (final muscleGroup in muscleGroups) {
-          final muscleGroupStr = muscleGroupToString(muscleGroup);
-          newTargetArea = newTargetArea
-              .split(' + ')
-              .where((t) => t != muscleGroupStr)
-              .join(' + ');
-        }
-
-        await db.update('workout_logs', {
-          'exercises': jsonEncode(filteredExercises),
-          'target_area': newTargetArea.isEmpty ? 'Unknown' : newTargetArea,
-        }, where: 'date = ?', whereArgs: [date]);
-      }
+    // V3 schema: Delete rows for each muscle group directly
+    for (final muscleGroup in muscleGroups) {
+      final muscleGroupKey = muscleGroupToString(muscleGroup);
+      await db.delete('workout_logs',
+        where: 'muscle_group = ?',
+        whereArgs: [muscleGroupKey]);
     }
   }
 
@@ -260,27 +227,24 @@ class ExcelImportService {
       }
 
       if (exercises.isNotEmpty) {
-        // Check if entry exists for this date
-        final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+        // V3 schema: Check if entry exists for this date AND muscle group
+        final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+        final existing = await db.query('workout_logs',
+          where: 'date = ? AND muscle_group = ?',
+          whereArgs: [date, muscleGroupKey]);
 
         if (existing.isNotEmpty) {
           // Merge with existing
           final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
-          final existingTargetArea = existing.first['target_area'] as String;
-
-          final newTargetArea = existingTargetArea.contains(muscleGroupToString(MuscleGroup.upperBody))
-              ? existingTargetArea
-              : '$existingTargetArea + ${muscleGroupToString(MuscleGroup.upperBody)}';
 
           await db.update('workout_logs', {
-            'target_area': newTargetArea,
             'exercises': jsonEncode([...existingExercises, ...exercises]),
-          }, where: 'date = ?', whereArgs: [date]);
+          }, where: 'date = ? AND muscle_group = ?', whereArgs: [date, muscleGroupKey]);
         } else {
           // Insert new
           await db.insert('workout_logs', {
             'date': date,
-            'target_area': muscleGroupToString(MuscleGroup.upperBody),
+            'muscle_group': muscleGroupKey,
             'exercises': jsonEncode(exercises),
           });
         }
@@ -345,27 +309,24 @@ class ExcelImportService {
       }
 
       if (exercises.isNotEmpty) {
-        // Check if entry exists for this date
-        final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+        // V3 schema: Check if entry exists for this date AND muscle group
+        final muscleGroupKey = muscleGroupToString(MuscleGroup.lowerBody);
+        final existing = await db.query('workout_logs',
+          where: 'date = ? AND muscle_group = ?',
+          whereArgs: [date, muscleGroupKey]);
 
         if (existing.isNotEmpty) {
           // Merge with existing
           final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
-          final existingTargetArea = existing.first['target_area'] as String;
-
-          final newTargetArea = existingTargetArea.contains(muscleGroupToString(MuscleGroup.lowerBody))
-              ? existingTargetArea
-              : '$existingTargetArea + ${muscleGroupToString(MuscleGroup.lowerBody)}';
 
           await db.update('workout_logs', {
-            'target_area': newTargetArea,
             'exercises': jsonEncode([...existingExercises, ...exercises]),
-          }, where: 'date = ?', whereArgs: [date]);
+          }, where: 'date = ? AND muscle_group = ?', whereArgs: [date, muscleGroupKey]);
         } else {
           // Insert new
           await db.insert('workout_logs', {
             'date': date,
-            'target_area': muscleGroupToString(MuscleGroup.lowerBody),
+            'muscle_group': muscleGroupKey,
             'exercises': jsonEncode(exercises),
           });
         }
@@ -430,28 +391,24 @@ class ExcelImportService {
             'exercises': exercises,
           };
 
-          // Check if entry exists for this date
-          final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+          // V3 schema: Check if entry exists for this date AND muscle group
+          final muscleGroupKey = muscleGroupToString(MuscleGroup.core);
+          final existing = await db.query('workout_logs',
+            where: 'date = ? AND muscle_group = ?',
+            whereArgs: [date, muscleGroupKey]);
 
           if (existing.isNotEmpty) {
             // Merge with existing
             final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
-            final existingTargetArea = existing.first['target_area'] as String;
-
-            final coreLabel = muscleGroupToString(MuscleGroup.core);
-            final newTargetArea = existingTargetArea.contains(coreLabel)
-                ? existingTargetArea
-                : '$existingTargetArea + $coreLabel';
 
             await db.update('workout_logs', {
-              'target_area': newTargetArea,
               'exercises': jsonEncode([...existingExercises, coreWorkoutData]),
-            }, where: 'date = ?', whereArgs: [date]);
+            }, where: 'date = ? AND muscle_group = ?', whereArgs: [date, muscleGroupKey]);
           } else {
             // Insert new
             await db.insert('workout_logs', {
               'date': date,
-              'target_area': muscleGroupToString(MuscleGroup.core),
+              'muscle_group': muscleGroupKey,
               'exercises': jsonEncode([coreWorkoutData]),
             });
           }
@@ -529,80 +486,30 @@ class ExcelImportService {
       }
 
       if (activities.isNotEmpty) {
-        // Check if entry exists for this date
-        final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [date]);
+        // V3 schema: Insert each activity in its own row
+        for (final activityMap in activities) {
+          final activity = Activity.fromMap(activityMap);
+          final muscleGroupKey = LocalDB.getActivityMuscleGroupKey(activity);
 
-        if (existing.isNotEmpty) {
-          // Merge with existing - deduplicate activities
-          final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
-          final existingTargetArea = existing.first['target_area'] as String;
+          // Check if this specific activity already exists
+          final existing = await db.query('workout_logs',
+              where: 'date = ? AND muscle_group = ?',
+              whereArgs: [date, muscleGroupKey]);
 
-          // Find existing activity entry for this muscle group
-          Map<String, dynamic>? existingActivityEntry;
-          int? existingActivityIndex;
-          for (int i = 0; i < existingExercises.length; i++) {
-            final item = existingExercises[i];
-            if (item is Map && item['isActivity'] == true) {
-              existingActivityEntry = item as Map<String, dynamic>;
-              existingActivityIndex = i;
-              break;
-            }
-          }
-
-          if (existingActivityEntry != null) {
-            // Merge activities, deduplicating by name and completedAt
-            final existingActivitiesList = existingActivityEntry['activities'] as List;
-            final mergedActivities = List<Map<String, dynamic>>.from(existingActivitiesList);
-
-            for (final newActivity in activities) {
-              // Check if this activity already exists (match by name and completedAt)
-              final isDuplicate = mergedActivities.any((existing) {
-                final nameMatch = existing['name'] == newActivity['name'];
-                final completedAtMatch = existing['completedAt'] == newActivity['completedAt'];
-                return nameMatch && completedAtMatch;
-              });
-
-              if (!isDuplicate) {
-                mergedActivities.add(newActivity);
-              }
-            }
-
-            // Update the activity entry with merged list
-            existingActivityEntry['activities'] = mergedActivities;
-            existingExercises[existingActivityIndex!] = existingActivityEntry;
-
-            await db.update('workout_logs', {
-              'exercises': jsonEncode(existingExercises),
-            }, where: 'date = ?', whereArgs: [date]);
-          } else {
-            // No existing activity entry, append new one
+          if (existing.isEmpty) {
+            // Insert new activity row
             final activityData = {
               'isActivity': true,
-              'activities': activities,
+              'activities': [activityMap],
             };
 
-            final activityLabel = muscleGroupToString(MuscleGroup.otherActivity);
-            final newTargetArea = existingTargetArea.contains(activityLabel)
-                ? existingTargetArea
-                : '$existingTargetArea + $activityLabel';
-
-            await db.update('workout_logs', {
-              'target_area': newTargetArea,
-              'exercises': jsonEncode([...existingExercises, activityData]),
-            }, where: 'date = ?', whereArgs: [date]);
+            await db.insert('workout_logs', {
+              'date': date,
+              'muscle_group': muscleGroupKey,
+              'exercises': jsonEncode([activityData]),
+            });
           }
-        } else {
-          // Insert new
-          final activityData = {
-            'isActivity': true,
-            'activities': activities,
-          };
-
-          await db.insert('workout_logs', {
-            'date': date,
-            'target_area': muscleGroupToString(MuscleGroup.otherActivity),
-            'exercises': jsonEncode([activityData]),
-          });
+          // If activity already exists, skip (no merge needed for exact duplicates)
         }
       }
     }
@@ -760,9 +667,11 @@ class ExcelImportService {
   }
 
   /// Import Activity Attachments from sheet
-  static Future<void> _importActivityAttachments(Excel excel, bool replace) async {
+  static Future<List<String>> _importActivityAttachments(Excel excel, bool replace) async {
     final sheet = excel.tables[ExcelSheetNames.activityAttachments];
-    if (sheet == null || sheet.maxRows < 2) return;
+    if (sheet == null || sheet.maxRows < 2) return [];
+
+    final warnings = <String>[];
 
     final db = await LocalDB.database;
 
@@ -949,7 +858,7 @@ class ExcelImportService {
                   // Use thumbnail-only version
                   activityData['attachments'] = thumbnailOnlyList;
                   modified = true;
-                  print('Warning: Imported attachments for "$activityName" on $date as thumbnail-only to stay within size limits');
+                  warnings.add('Imported attachments for "$activityName" on $date as thumbnail-only to stay within size limits');
                 } else {
                   // Cannot merge - would exceed limit even with thumbnails only
                   // Keep existing attachments and skip importing new ones
@@ -957,10 +866,10 @@ class ExcelImportService {
                     // In replace mode, clear attachments if they can't fit
                     activityData['attachments'] = null;
                     modified = true;
-                    print('Warning: Cleared attachments for "$activityName" on $date - exceeds size limit even with thumbnails only');
+                    warnings.add('Cleared attachments for "$activityName" on $date - exceeds size limit even with thumbnails only');
                   } else {
                     // In merge mode, keep existing attachments, skip importing new ones
-                    print('Warning: Skipped importing attachments for "$activityName" on $date - would exceed size limit when merged with existing');
+                    warnings.add('Skipped importing attachments for "$activityName" on $date - would exceed size limit when merged with existing');
                   }
                 }
               } else {
@@ -980,5 +889,7 @@ class ExcelImportService {
         }, where: 'date = ?', whereArgs: [date]);
       }
     }
+
+    return warnings;
   }
 }

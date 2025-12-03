@@ -71,53 +71,69 @@ class HistoryScreenState extends State<HistoryScreen>
   Future<void> _loadWorkoutDates() async {
     try {
       final db = await LocalDB.database;
-      final logs = await db.query('workout_logs');
+
+      // Get all distinct dates
+      final distinctDates = await db.rawQuery(
+        'SELECT DISTINCT date FROM workout_logs ORDER BY date DESC'
+      );
 
       final Map<DateTime, List<String>> dates = {};
 
-    for (var log in logs) {
-      try {
-        final dateStr = log['date'] as String;
-        final date = DateTime.parse(dateStr);
-        final dateOnly = DateTime(date.year, date.month, date.day);
+      for (var dateRow in distinctDates) {
+        try {
+          final dateStr = dateRow['date'] as String;
+          final date = DateTime.parse(dateStr);
+          final dateOnly = DateTime(date.year, date.month, date.day);
 
-        // Parse exercises to determine workout types
-        final List<String> workoutTypes = [];
-        final exercisesJson = jsonDecode(log['exercises'] as String) as List;
+          // Get all muscle groups for this date
+          final muscleGroupRows = await db.query(
+            'workout_logs',
+            columns: ['muscle_group', 'exercises'],
+            where: 'date = ?',
+            whereArgs: [dateStr],
+          );
 
-        for (var item in exercisesJson) {
-          if (item is Map) {
-            // Check for activities
-            if (item['isActivity'] == true) {
-              if (!workoutTypes.contains('Activity')) {
-                workoutTypes.add('Activity');
+          final List<String> workoutTypes = [];
+
+          for (var row in muscleGroupRows) {
+            final muscleGroupStr = row['muscle_group'] as String;
+
+            // Check if it's an activity
+            if (muscleGroupStr.startsWith(muscleGroupToString(MuscleGroup.otherActivity))) {
+              final workoutTypeLabel = muscleGroupToString(MuscleGroup.otherActivity);
+              if (!workoutTypes.contains(workoutTypeLabel)) {
+                workoutTypes.add(workoutTypeLabel);
               }
             }
-            // Check for core workout
-            else if (item['isCore'] == true) {
-              if (!workoutTypes.contains('Core')) {
-                workoutTypes.add('Core');
+            // Check if it's core
+            else if (muscleGroupStr == muscleGroupToString(MuscleGroup.core)) {
+              final workoutTypeLabel = muscleGroupToString(MuscleGroup.core);
+              if (!workoutTypes.contains(workoutTypeLabel)) {
+                workoutTypes.add(workoutTypeLabel);
               }
             }
-            // Check for upper/lower body
-            else if (item['muscleGroup'] != null) {
-              final muscleGroup = item['muscleGroup'] as String;
-              if (muscleGroup == 'Upper Body' && !workoutTypes.contains('Upper Body')) {
-                workoutTypes.add('Upper Body');
-              } else if (muscleGroup == 'Lower Body' && !workoutTypes.contains('Lower Body')) {
-                workoutTypes.add('Lower Body');
+            // Check if it's upper or lower body
+            else if (muscleGroupStr == muscleGroupToString(MuscleGroup.upperBody)) {
+              final workoutTypeLabel = muscleGroupToString(MuscleGroup.upperBody);
+              if (!workoutTypes.contains(workoutTypeLabel)) {
+                workoutTypes.add(workoutTypeLabel);
+              }
+            }
+            else if (muscleGroupStr == muscleGroupToString(MuscleGroup.lowerBody)) {
+              final workoutTypeLabel = muscleGroupToString(MuscleGroup.lowerBody);
+              if (!workoutTypes.contains(workoutTypeLabel)) {
+                workoutTypes.add(workoutTypeLabel);
               }
             }
           }
-        }
 
-        if (workoutTypes.isNotEmpty) {
-          dates[dateOnly] = workoutTypes;
+          if (workoutTypes.isNotEmpty) {
+            dates[dateOnly] = workoutTypes;
+          }
+        } catch (e) {
+          // Skip invalid dates
         }
-      } catch (e) {
-        // Skip invalid dates
       }
-    }
 
       if (mounted) {
         setState(() {
@@ -468,14 +484,19 @@ class HistoryScreenState extends State<HistoryScreen>
 
               // Color mapping for different workout types using WorkoutColors
               final Map<String, Color> colorMap = {
-                'Upper Body': WorkoutColors.upperBody,
-                'Lower Body': WorkoutColors.lowerBody,
-                'Core': WorkoutColors.core,
-                'Activity': WorkoutColors.otherActivity,
+                muscleGroupToString(MuscleGroup.upperBody): WorkoutColors.upperBody,
+                muscleGroupToString(MuscleGroup.lowerBody): WorkoutColors.lowerBody,
+                muscleGroupToString(MuscleGroup.core): WorkoutColors.core,
+                muscleGroupToString(MuscleGroup.otherActivity): WorkoutColors.otherActivity,
               };
 
               // Sort workout types in consistent order: Upper, Lower, Core, Activities
-              final sortOrder = ['Upper Body', 'Lower Body', 'Core', 'Activity'];
+              final sortOrder = [
+                muscleGroupToString(MuscleGroup.upperBody),
+                muscleGroupToString(MuscleGroup.lowerBody),
+                muscleGroupToString(MuscleGroup.core),
+                muscleGroupToString(MuscleGroup.otherActivity),
+              ];
               final sortedWorkoutTypes = workoutTypes.toList()
                 ..sort((a, b) {
                   final indexA = sortOrder.indexOf(a);

@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: flutter-test
         name: Run Flutter Tests
-        entry: flutter test test/localdb_service_test.dart
+        entry: flutter test
         language: system
         pass_filenames: false
-        stages: [commit]
+        stages: [pre-commit]

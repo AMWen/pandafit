@@ -57,13 +57,13 @@ class OnboardingPage extends StatelessWidget {
             style: TextStyle(fontSize: 18),
             text:
                 "Not sure how to do an exercise? No problem!\n\n"
-                "Links to videos demonstrating the movements are included, along with form notes and target muscles.\n\n",
+                "Links to videos 🎬 demonstrating the movements are included, along with form notes and target muscles.\n\n",
             children: [
               TextSpan(text: "Tip:", style: TextStyle(fontWeight: FontWeight.bold)),
               TextSpan(
                 text:
                     " Core lets you catch up if you missed yesterday's workout.\n\n"
-                    "Each side counts as 1 rep (e.g., 12 side crunches = 6 per side). Feel free to challenge yourself and go for more, or adjust down as needed!",
+                    "Each side counts as 1 rep (e.g., 12 side crunches = 6 per side), but use these as a guide. Feel free to challenge yourself and go for more, or adjust down as needed!",
               ),
             ],
           ),
@@ -131,12 +131,25 @@ class OnboardingPage extends StatelessWidget {
         title: "Log Other Activities",
         bodyWidget: const Text(
           "Track cardio ❤️, yoga 🧘, or any other activity!\n\n"
+          "Add photos 📷 or PDFs to capture memories and track your progress and achievements 🏆.\n\n"
           "Previous activities are stored for quick logging.",
           textAlign: TextAlign.left,
           style: TextStyle(fontSize: 18),
         ),
         image: Center(
-          child: Image.asset("assets/images/screenshots/5_actiities.png", width: width),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset("assets/images/screenshots/5a_activities_entry.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/5c_activities_completion.png", width: width),
+                SizedBox(width: spacing),
+                Image.asset("assets/images/screenshots/5b_activities_attachment.png", width: width),
+              ],
+            ),
+          ),
         ),
       ),
       PageViewModel(

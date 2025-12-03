@@ -14,6 +14,24 @@ import 'localdb_service.dart';
 import 'attachment_service.dart';
 
 class ExcelImportService {
+  /// Normalize date string to YYYY-MM-DD format
+  /// Handles formats like: "2025-01-01", "2025-01-01T00:00:00.000Z", etc.
+  static String _normalizeDateString(String dateStr) {
+    try {
+      // Try to parse as DateTime
+      final date = DateTime.parse(dateStr);
+      // Return in YYYY-MM-DD format
+      return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    } catch (e) {
+      // If parsing fails, check if it's already in YYYY-MM-DD format
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateStr)) {
+        return dateStr;
+      }
+      // If all else fails, return the original
+      return dateStr;
+    }
+  }
+
   /// Import workout data from XLSX file with user selection
   static Future<String> importFromExcel(BuildContext context) async {
     try {
@@ -170,9 +188,13 @@ class ExcelImportService {
     }
   }
 
-  /// Import Upper Body workout history from sheet
-  static Future<void> _importUpperBodyHistory(Excel excel) async {
-    final sheet = excel.tables[ExcelSheetNames.upperBody];
+  /// Generic function to import workout history for any muscle group
+  static Future<void> _importWorkoutHistory({
+    required Excel excel,
+    required String sheetName,
+    required MuscleGroup muscleGroup,
+  }) async {
+    final sheet = excel.tables[sheetName];
     if (sheet == null || sheet.maxRows < 2) return;
 
     final db = await LocalDB.database;
@@ -191,9 +213,12 @@ class ExcelImportService {
     // Process each date row
     for (int row = 1; row < sheet.maxRows; row++) {
       final dateCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row));
-      final date = dateCell.value?.toString();
+      final dateStr = dateCell.value?.toString();
 
-      if (date == null || date.isEmpty) continue;
+      if (dateStr == null || dateStr.isEmpty) continue;
+
+      // Normalize date to YYYY-MM-DD format
+      final date = _normalizeDateString(dateStr);
 
       final exercises = <Map<String, dynamic>>[];
 
@@ -212,7 +237,7 @@ class ExcelImportService {
 
             exercises.add({
               'name': exerciseNames[col],
-              'muscleGroup': muscleGroupToString(MuscleGroup.upperBody),
+              'muscleGroup': muscleGroupToString(muscleGroup),
               'targetMuscles': <String>[],
               'reps': '8-12',
               'sets': 3,
@@ -228,7 +253,7 @@ class ExcelImportService {
 
       if (exercises.isNotEmpty) {
         // V3 schema: Check if entry exists for this date AND muscle group
-        final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+        final muscleGroupKey = muscleGroupToString(muscleGroup);
         final existing = await db.query('workout_logs',
           where: 'date = ? AND muscle_group = ?',
           whereArgs: [date, muscleGroupKey]);
@@ -252,86 +277,22 @@ class ExcelImportService {
     }
   }
 
+  /// Import Upper Body workout history from sheet
+  static Future<void> _importUpperBodyHistory(Excel excel) async {
+    await _importWorkoutHistory(
+      excel: excel,
+      sheetName: ExcelSheetNames.upperBody,
+      muscleGroup: MuscleGroup.upperBody,
+    );
+  }
+
   /// Import Lower Body workout history from sheet
   static Future<void> _importLowerBodyHistory(Excel excel) async {
-    final sheet = excel.tables[ExcelSheetNames.lowerBody];
-    if (sheet == null || sheet.maxRows < 2) return;
-
-    final db = await LocalDB.database;
-
-    // Read header row to get exercise names
-    final exerciseNames = <String>[];
-    int col = 1;
-    while (true) {
-      final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
-      final name = cell.value?.toString();
-      if (name == null || name.isEmpty) break;
-      exerciseNames.add(name);
-      col++;
-    }
-
-    // Process each date row
-    for (int row = 1; row < sheet.maxRows; row++) {
-      final dateCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row));
-      final date = dateCell.value?.toString();
-
-      if (date == null || date.isEmpty) continue;
-
-      final exercises = <Map<String, dynamic>>[];
-
-      // Process each exercise column
-      for (int col = 0; col < exerciseNames.length; col++) {
-        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col + 1, rowIndex: row));
-        final cellValue = cell.value?.toString();
-
-        if (cellValue != null && cellValue.isNotEmpty) {
-          // Parse format: "25lb: 10, 10, 10"
-          final match = RegExp(r'([\d.]+)lb:\s*(.+)').firstMatch(cellValue);
-          if (match != null) {
-            final weight = double.tryParse(match.group(1)!);
-            final setsStr = match.group(2)!;
-            final sets = setsStr.split(',').map((s) => int.tryParse(s.trim()) ?? 0).toList();
-
-            exercises.add({
-              'name': exerciseNames[col],
-              'muscleGroup': muscleGroupToString(MuscleGroup.lowerBody),
-              'targetMuscles': <String>[],
-              'reps': '8-12',
-              'sets': 3,
-              'weight': weight,
-              'completedSets': sets,
-              'videoLink': '',
-              'notes': '',
-              'isSkipped': false,
-            });
-          }
-        }
-      }
-
-      if (exercises.isNotEmpty) {
-        // V3 schema: Check if entry exists for this date AND muscle group
-        final muscleGroupKey = muscleGroupToString(MuscleGroup.lowerBody);
-        final existing = await db.query('workout_logs',
-          where: 'date = ? AND muscle_group = ?',
-          whereArgs: [date, muscleGroupKey]);
-
-        if (existing.isNotEmpty) {
-          // Merge with existing
-          final existingExercises = jsonDecode(existing.first['exercises'] as String) as List;
-
-          await db.update('workout_logs', {
-            'exercises': jsonEncode([...existingExercises, ...exercises]),
-          }, where: 'date = ? AND muscle_group = ?', whereArgs: [date, muscleGroupKey]);
-        } else {
-          // Insert new
-          await db.insert('workout_logs', {
-            'date': date,
-            'muscle_group': muscleGroupKey,
-            'exercises': jsonEncode(exercises),
-          });
-        }
-      }
-    }
+    await _importWorkoutHistory(
+      excel: excel,
+      sheetName: ExcelSheetNames.lowerBody,
+      muscleGroup: MuscleGroup.lowerBody,
+    );
   }
 
   /// Import Core workout history from sheet
@@ -346,10 +307,13 @@ class ExcelImportService {
       final dateCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row));
       final coreCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row));
 
-      final date = dateCell.value?.toString();
+      final dateStr = dateCell.value?.toString();
       final coreInfo = coreCell.value?.toString();
 
-      if (date == null || date.isEmpty || coreInfo == null || coreInfo.isEmpty) continue;
+      if (dateStr == null || dateStr.isEmpty || coreInfo == null || coreInfo.isEmpty) continue;
+
+      // Normalize date to YYYY-MM-DD format
+      final date = _normalizeDateString(dateStr);
 
       // Parse format: "3 sets x 4 exercises: Exercise1(12), Exercise2(10), ..."
       final match = RegExp(r'(\d+)\s+sets\s+x\s+(\d+)\s+exercises:\s*(.+)').firstMatch(coreInfo);
@@ -438,9 +402,12 @@ class ExcelImportService {
     // Process each date row
     for (int row = 1; row < sheet.maxRows; row++) {
       final dateCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row));
-      final date = dateCell.value?.toString();
+      final dateStr = dateCell.value?.toString();
 
-      if (date == null || date.isEmpty) continue;
+      if (dateStr == null || dateStr.isEmpty) continue;
+
+      // Normalize date to YYYY-MM-DD format
+      final date = _normalizeDateString(dateStr);
 
       final activities = <Map<String, dynamic>>[];
 

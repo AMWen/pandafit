@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/activity_attachment.dart';
 import '../constants.dart';
 import '../services/attachment_service.dart';
@@ -49,6 +52,17 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       });
       widget.onAttachmentsChanged?.call(_attachments);
     }
+  }
+
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      final item = _attachments.removeAt(oldIndex);
+      _attachments.insert(newIndex, item);
+    });
+    widget.onAttachmentsChanged?.call(_attachments);
   }
 
 
@@ -139,17 +153,21 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                 ],
               ),
             )
-          : ListView.builder(
+          : ReorderableListView.builder(
               padding: EdgeInsets.all(16),
               itemCount: _attachments.length,
+              onReorder: _onReorder,
               itemBuilder: (context, index) {
                 final attachment = _attachments[index];
                 return _AttachmentCard(
+                  key: ValueKey(attachment.attachedDate.millisecondsSinceEpoch),
                   attachment: attachment,
                   onTap: () => _viewAttachment(context, index),
-                  onDelete: () => _deleteAttachment(index),
-                  onRemoveFullFile: () => _removeFullFile(index),
+                  onDelete: isEditable ? () => _deleteAttachment(index) : null,
+                  onRemoveFullFile: isEditable ? () => _removeFullFile(index) : null,
                   hasFullFile: attachment.fullFileBase64 != null,
+                  showReorderHandle: isEditable,
+                  reorderIndex: index,
                 );
               },
             ),
@@ -184,13 +202,18 @@ class _AttachmentCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onRemoveFullFile;
   final bool hasFullFile;
+  final bool showReorderHandle;
+  final int? reorderIndex;
 
   const _AttachmentCard({
+    super.key,
     required this.attachment,
     required this.onTap,
     this.onDelete,
     this.onRemoveFullFile,
     required this.hasFullFile,
+    this.showReorderHandle = false,
+    this.reorderIndex,
   });
 
   @override
@@ -266,7 +289,8 @@ class _AttachmentCard extends StatelessWidget {
                 ),
               ),
               // Delete button
-              IconButton(
+              if (onDelete != null)
+                IconButton(
                 icon: Icon(Icons.delete_outline, color: ActionColors.delete),
                 onPressed: () {
                   showDialog(
@@ -280,6 +304,12 @@ class _AttachmentCard extends StatelessWidget {
                 },
                 tooltip: 'Delete attachment',
               ),
+              // Reorder handle (3 vertical dots)
+              if (showReorderHandle && reorderIndex != null)
+                ReorderableDragStartListener(
+                  index: reorderIndex!,
+                  child: Icon(Icons.drag_indicator, color: Colors.grey[600], size: 20),
+                ),
             ],
           ),
         ),
@@ -367,6 +397,68 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
     _initializePdfControllerForIndex(index);
   }
 
+  Future<void> _downloadAttachment() async {
+    try {
+      final attachment = widget.attachments[_currentIndex];
+
+      // Use full file if available, otherwise use thumbnail
+      final fileData = attachment.fullFileBase64 ?? attachment.thumbnailBase64;
+
+      // Decode base64 to bytes
+      List<int> bytes;
+      try {
+        bytes = base64Decode(fileData);
+      } catch (e) {
+        throw Exception('Failed to decode file data: $e');
+      }
+
+      // Get file extension from mime type or filename
+      String extension = '';
+      if (attachment.mimeType == 'application/pdf') {
+        extension = '.pdf';
+      } else if (attachment.mimeType.startsWith('image/jpeg') || attachment.fileName.toLowerCase().endsWith('.jpg') || attachment.fileName.toLowerCase().endsWith('.jpeg')) {
+        extension = '.jpg';
+      } else if (attachment.mimeType.startsWith('image/png') || attachment.fileName.toLowerCase().endsWith('.png')) {
+        extension = '.png';
+      }
+
+      // Default filename
+      final defaultFileName = attachment.fileName.replaceAll(RegExp(r'\.(jpg|jpeg|png|pdf)$', caseSensitive: false), '') + extension;
+
+      // Let user choose save location
+      final outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Attachment',
+        fileName: defaultFileName,
+        type: FileType.any,
+        bytes: Uint8List.fromList(bytes),
+      );
+
+      if (outputFile != null) {
+        // On some platforms, saveFile already writes the bytes
+        // On others, we need to write them manually
+        try {
+          final file = File(outputFile);
+          if (!await file.exists() || await file.length() == 0) {
+            await file.writeAsBytes(bytes);
+          }
+        } catch (e) {
+          // File might already be written by FilePicker
+        }
+
+        if (mounted) {
+          showSnackbar(
+            context,
+            'Downloaded ${attachment.fullFileBase64 != null ? "full file" : "thumbnail"}',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        showSnackbar(context, 'Error downloading attachment: $e', isError: true);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentAttachment = widget.attachments[_currentIndex];
@@ -376,6 +468,11 @@ class _FullAttachmentViewState extends State<_FullAttachmentView> {
         title: Text('${_currentIndex + 1} of ${widget.attachments.length}'),
         backgroundColor: primaryColor,
         actions: [
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: _downloadAttachment,
+            tooltip: 'Download attachment',
+          ),
           IconButton(
             icon: Icon(Icons.delete_outline),
             onPressed: () {

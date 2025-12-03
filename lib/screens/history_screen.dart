@@ -2085,72 +2085,62 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
     final dateStr = widget.date;
     final db = await LocalDB.database;
 
-    // Get existing workout log
-    final existing = await db.query('workout_logs', where: 'date = ?', whereArgs: [dateStr]);
-    List<dynamic> existingExercises = [];
-
-    if (existing.isNotEmpty) {
-      final existingData = existing.first;
-      existingExercises = jsonDecode(existingData['exercises'] as String) as List;
-    }
-
-    // Add exercises for the muscle group
+    // V3 schema: Each muscle group has its own row
     if (muscleGroup != null && exercises != null) {
-      // Remove old exercises for this muscle group
-      existingExercises.removeWhere((item) =>
-        item is Map && item['muscleGroup'] == muscleGroupToString(muscleGroup));
+      final muscleGroupKey = muscleGroupToString(muscleGroup);
 
-      // Add new exercises
-      for (final exercise in exercises) {
-        existingExercises.add(exercise.toJson());
+      // Check if entry exists for this date AND muscle group
+      final existing = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [dateStr, muscleGroupKey]);
+
+      // Convert exercises to JSON format
+      final exercisesJson = exercises.map((e) => e.toJson()).toList();
+
+      if (existing.isEmpty) {
+        // Insert new entry
+        await db.insert('workout_logs', {
+          'date': dateStr,
+          'muscle_group': muscleGroupKey,
+          'exercises': jsonEncode(exercisesJson),
+        });
+      } else {
+        // Update existing entry
+        await db.update('workout_logs', {
+          'exercises': jsonEncode(exercisesJson),
+        }, where: 'date = ? AND muscle_group = ?', whereArgs: [dateStr, muscleGroupKey]);
       }
     }
 
     // Add core workout
     if (coreWorkout != null) {
-      // Remove old core workout
-      existingExercises.removeWhere((item) =>
-        item is Map && item['isCore'] == true);
+      final muscleGroupKey = muscleGroupToString(MuscleGroup.core);
 
-      // Add new core workout
-      existingExercises.add({
+      // Check if entry exists for this date AND core
+      final existing = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [dateStr, muscleGroupKey]);
+
+      final coreData = {
         'isCore': true,
         'sets': coreWorkout.sets,
         'exercisesPerSet': coreWorkout.exercisesPerSet,
         'exercises': coreWorkout.exercises.map((e) => e.toJson()).toList(),
-      });
-    }
+      };
 
-    // Calculate target area
-    final targetAreas = <String>[];
-    for (var item in existingExercises) {
-      if (item is Map) {
-        if (item['muscleGroup'] == muscleGroupToString(MuscleGroup.upperBody) &&
-            !targetAreas.contains(muscleGroupToString(MuscleGroup.upperBody))) {
-          targetAreas.add(muscleGroupToString(MuscleGroup.upperBody));
-        } else if (item['muscleGroup'] == muscleGroupToString(MuscleGroup.lowerBody) &&
-            !targetAreas.contains(muscleGroupToString(MuscleGroup.lowerBody))) {
-          targetAreas.add(muscleGroupToString(MuscleGroup.lowerBody));
-        } else if (item['isCore'] == true &&
-            !targetAreas.contains(muscleGroupToString(MuscleGroup.core))) {
-          targetAreas.add(muscleGroupToString(MuscleGroup.core));
-        }
+      if (existing.isEmpty) {
+        // Insert new entry
+        await db.insert('workout_logs', {
+          'date': dateStr,
+          'muscle_group': muscleGroupKey,
+          'exercises': jsonEncode([coreData]),
+        });
+      } else {
+        // Update existing entry
+        await db.update('workout_logs', {
+          'exercises': jsonEncode([coreData]),
+        }, where: 'date = ? AND muscle_group = ?', whereArgs: [dateStr, muscleGroupKey]);
       }
-    }
-    final targetAreaStr = targetAreas.isNotEmpty ? targetAreas.join(' + ') : 'Workout';
-
-    // Update or insert
-    if (existing.isEmpty) {
-      await db.insert('workout_logs', {
-        'date': dateStr,
-        'target_area': targetAreaStr,
-        'exercises': jsonEncode(existingExercises),
-      });
-    } else {
-      await db.update('workout_logs', {
-        'target_area': targetAreaStr,
-        'exercises': jsonEncode(existingExercises),
-      }, where: 'date = ?', whereArgs: [dateStr]);
     }
 
     // Notify parent to refresh calendar dots

@@ -1077,6 +1077,293 @@ void main() {
     });
   });
 
+  group('LocalDB - V3 Schema Compatibility (Calendar Add Button)', () {
+    late String testDate;
+    late Database db;
+
+    setUp(() async {
+      testDate = '2024-04-01';
+      db = await LocalDB.database;
+      await db.delete('workout_logs', where: 'date = ?', whereArgs: [testDate]);
+    });
+
+    test('Should insert workout using V3 schema (date + muscle_group unique constraint)', () async {
+      // This simulates what history_screen's _saveWorkoutToDatabase does
+      final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+
+      // Insert first workout
+      final exercises = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 135.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupKey,
+        'exercises': jsonEncode(exercises.map((e) => e.toJson()).toList()),
+      });
+
+      // Verify it was inserted
+      final result = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(result.length, equals(1),
+        reason: 'Should have one entry for date + muscle_group combination');
+
+      final savedExercises = jsonDecode(result.first['exercises'] as String) as List;
+      expect(savedExercises.length, equals(1));
+      expect(savedExercises[0]['name'], equals('Bench Press'));
+
+      debugPrint('✓ V3 schema insert works correctly');
+    });
+
+    test('Should update existing workout using V3 schema (date + muscle_group)', () async {
+      final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+
+      // Insert initial workout
+      final exercises1 = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 135.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupKey,
+        'exercises': jsonEncode(exercises1.map((e) => e.toJson()).toList()),
+      });
+
+      // Update with new workout (simulates clicking "Add" button again or editing)
+      final exercises2 = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 140.0,
+          completedSets: [12, 11, 10],
+        ),
+        Exercise(
+          name: 'Incline Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 115.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.update('workout_logs', {
+        'exercises': jsonEncode(exercises2.map((e) => e.toJson()).toList()),
+      }, where: 'date = ? AND muscle_group = ?', whereArgs: [testDate, muscleGroupKey]);
+
+      // Verify update worked
+      final result = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(result.length, equals(1),
+        reason: 'Should still have exactly one entry (updated, not inserted)');
+
+      final savedExercises = jsonDecode(result.first['exercises'] as String) as List;
+      expect(savedExercises.length, equals(2),
+        reason: 'Should have 2 exercises after update');
+      expect(savedExercises[0]['weight'], equals(140.0),
+        reason: 'Weight should be updated');
+
+      debugPrint('✓ V3 schema update works correctly');
+    });
+
+    test('Should allow multiple muscle groups for same date using V3 schema', () async {
+      // Insert upper body workout
+      final upperExercises = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 135.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupToString(MuscleGroup.upperBody),
+        'exercises': jsonEncode(upperExercises.map((e) => e.toJson()).toList()),
+      });
+
+      // Insert lower body workout (same date, different muscle group)
+      final lowerExercises = [
+        Exercise(
+          name: 'Squat',
+          muscleGroup: MuscleGroup.lowerBody,
+          reps: '8-12',
+          weight: 185.0,
+          completedSets: [10, 9, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupToString(MuscleGroup.lowerBody),
+        'exercises': jsonEncode(lowerExercises.map((e) => e.toJson()).toList()),
+      });
+
+      // Insert core workout (same date, another muscle group)
+      final coreData = {
+        'isCore': true,
+        'sets': 3,
+        'exercisesPerSet': 4,
+        'exercises': [
+          {'name': 'Crunches', 'amount': 25, 'isTimed': false},
+          {'name': 'Plank', 'amount': 60, 'isTimed': true},
+        ],
+      };
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupToString(MuscleGroup.core),
+        'exercises': jsonEncode([coreData]),
+      });
+
+      // Verify all three are stored separately
+      final allResults = await db.query('workout_logs',
+        where: 'date = ?',
+        whereArgs: [testDate]);
+
+      expect(allResults.length, equals(3),
+        reason: 'Should have 3 separate rows for same date, different muscle groups');
+
+      final muscleGroups = allResults.map((r) => r['muscle_group']).toSet();
+      expect(muscleGroups.contains(muscleGroupToString(MuscleGroup.upperBody)), isTrue);
+      expect(muscleGroups.contains(muscleGroupToString(MuscleGroup.lowerBody)), isTrue);
+      expect(muscleGroups.contains(muscleGroupToString(MuscleGroup.core)), isTrue);
+
+      debugPrint('✓ V3 schema allows multiple muscle groups per date');
+    });
+
+    test('Should enforce UNIQUE(date, muscle_group) constraint', () async {
+      final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+
+      // Insert first workout
+      final exercises = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 135.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupKey,
+        'exercises': jsonEncode(exercises.map((e) => e.toJson()).toList()),
+      });
+
+      // Try to insert duplicate (same date + muscle_group)
+      // This should throw an exception due to UNIQUE constraint
+      bool threwException = false;
+      try {
+        await db.insert('workout_logs', {
+          'date': testDate,
+          'muscle_group': muscleGroupKey,
+          'exercises': jsonEncode(exercises.map((e) => e.toJson()).toList()),
+        });
+      } catch (e) {
+        threwException = true;
+        expect(e.toString(), contains('UNIQUE constraint failed'),
+          reason: 'Should throw UNIQUE constraint error');
+      }
+
+      expect(threwException, isTrue,
+        reason: 'Duplicate insert should fail with UNIQUE constraint');
+
+      // Verify only one entry exists
+      final result = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(result.length, equals(1),
+        reason: 'Should still have exactly one entry after failed duplicate insert');
+
+      debugPrint('✓ UNIQUE(date, muscle_group) constraint enforced correctly');
+    });
+
+    test('Should handle calendar "Add" button workflow - check existence then insert/update', () async {
+      // This simulates the exact workflow from history_screen's _saveWorkoutToDatabase
+      final muscleGroupKey = muscleGroupToString(MuscleGroup.upperBody);
+
+      // Step 1: Check if entry exists (nothing should exist)
+      var existing = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(existing.isEmpty, isTrue,
+        reason: 'Initially no entry should exist');
+
+      // Step 2: Insert new workout (first "Add" click)
+      final exercises = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 135.0,
+          completedSets: [10, 10, 9],
+        ),
+      ];
+
+      await db.insert('workout_logs', {
+        'date': testDate,
+        'muscle_group': muscleGroupKey,
+        'exercises': jsonEncode(exercises.map((e) => e.toJson()).toList()),
+      });
+
+      // Step 3: Check if entry exists now (should exist)
+      existing = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(existing.isNotEmpty, isTrue,
+        reason: 'Entry should exist after insert');
+
+      // Step 4: Update existing entry (user edits and saves)
+      final updatedExercises = [
+        Exercise(
+          name: 'Bench Press',
+          muscleGroup: MuscleGroup.upperBody,
+          reps: '8-12',
+          weight: 140.0,
+          completedSets: [12, 11, 10],
+        ),
+      ];
+
+      await db.update('workout_logs', {
+        'exercises': jsonEncode(updatedExercises.map((e) => e.toJson()).toList()),
+      }, where: 'date = ? AND muscle_group = ?', whereArgs: [testDate, muscleGroupKey]);
+
+      // Step 5: Verify update worked
+      final finalResult = await db.query('workout_logs',
+        where: 'date = ? AND muscle_group = ?',
+        whereArgs: [testDate, muscleGroupKey]);
+
+      expect(finalResult.length, equals(1));
+      final savedExercises = jsonDecode(finalResult.first['exercises'] as String) as List;
+      expect(savedExercises[0]['weight'], equals(140.0));
+
+      debugPrint('✓ Calendar Add button workflow validated for V3 schema');
+    });
+  });
+
   tearDownAll(() async {
     debugPrint('\n✅ All LocalDB Service tests completed!');
     debugPrint('Note: Test database entries have been created. Consider cleanup if needed.');

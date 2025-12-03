@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: flutter-test
+        name: Run Flutter Tests
+        entry: flutter test test/localdb_service_test.dart
+        language: system
+        pass_filenames: false
+        stages: [commit]

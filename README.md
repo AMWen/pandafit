@@ -60,7 +60,27 @@ This app lets you generate personalized workouts for different muscle groups eac
 flutter pub get
 ```
 
-3. Once you're ready to release the app, you can generate a release APK or appbundle using the following commands:
+3. Set up pre-commit hooks (optional, but recommended for development):
+```bash
+# Create a virtual environment
+python3 -m venv .venv
+
+# Activate the virtual environment
+# On macOS/Linux:
+source .venv/bin/activate
+# On Windows:
+# .venv\Scripts\activate
+
+# Install pre-commit
+pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+```
+
+The pre-commit hook will automatically run tests before each commit to ensure database operations work correctly.
+
+4. Once you're ready to release the app, you can generate a release APK or appbundle using the following commands:
 
 For android:
 ```bash

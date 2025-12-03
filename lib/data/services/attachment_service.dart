@@ -26,9 +26,9 @@ class AttachmentService {
   static const int thumbnailWidth = 400;
   static const int thumbnailHeight = 560;
 
-  // Maximum total base64 size for all attachments in a single activity (1.5MB)
+  // Maximum total base64 size for all attachments in a single activity (1.9MB)
   // This prevents SQLite row size limits (2MB CursorWindow) from being exceeded
-  static const int maxTotalAttachmentsBase64Size = 1850 * 1024; // 1.5MB total
+  static const int maxTotalAttachmentsBase64Size = 1950 * 1024;
 
   // Error message for size limit exceeded
   static String get sizeExceededErrorMessage {

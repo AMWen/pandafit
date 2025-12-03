@@ -42,7 +42,8 @@ class AttachmentService {
   // Pick and process a file attachment
   // Returns null if user cancels or error occurs
   // Shows error message to user if file is unsupported
-  static Future<ActivityAttachment?> pickAttachment() async {
+  // keepFullSize: whether to store the full file (default varies by type)
+  static Future<ActivityAttachment?> pickAttachment({bool? keepFullSize}) async {
     try {
       // Pick file with data loading for cloud file support
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -70,18 +71,21 @@ class AttachmentService {
       final mimeType = lookupMimeType(fileName) ?? 'application/octet-stream';
       final originalSize = bytes.length;
 
+      // Determine default for keepFullSize based on file type if not specified
+      bool shouldKeepFullSize = keepFullSize ?? (mimeType == 'application/pdf');
+
       // Generate thumbnail and optionally store full file
       String thumbnailBase64;
       String? fullFileBase64;
 
       if (mimeType.startsWith('image/')) {
         // Process image
-        final result = await _processImage(bytes, originalSize);
+        final result = await _processImage(bytes, originalSize, shouldKeepFullSize);
         thumbnailBase64 = result.thumbnail;
         fullFileBase64 = result.fullFile;
       } else if (mimeType == 'application/pdf') {
         // Process PDF
-        final result = await _processPdf(bytes, originalSize);
+        final result = await _processPdf(bytes, originalSize, shouldKeepFullSize);
         thumbnailBase64 = result.thumbnail;
         fullFileBase64 = result.fullFile;
       } else {
@@ -106,6 +110,7 @@ class AttachmentService {
   static Future<_ProcessedFile> _processImage(
     Uint8List bytes,
     int originalSize,
+    bool keepFullSize,
   ) async {
     // Decode image
     img.Image? image = img.decodeImage(bytes);
@@ -116,20 +121,23 @@ class AttachmentService {
     // Generate and compress thumbnail
     String thumbnailBase64 = _generateThumbnailBase64(image);
 
-    // Store full file based on size
+    // Store full file based on preference and size
     String? fullFileBase64;
 
-    if (originalSize < maxFullFileSizeUncompressed) {
-      // Original is < 500KB - store as-is without compression
-      fullFileBase64 = base64Encode(bytes);
-    } else {
-      // Original ≥ 500KB - try to compress to < 1MB with variable quality
-      final Uint8List? compressed = _compressImageToTarget(image, originalSize);
-      if (compressed != null) {
-        fullFileBase64 = base64Encode(compressed);
+    if (keepFullSize) {
+      if (originalSize < maxFullFileSizeUncompressed) {
+        // Original is < 500KB - store as-is without compression
+        fullFileBase64 = base64Encode(bytes);
+      } else {
+        // Original ≥ 500KB - try to compress to < 1MB with variable quality
+        final Uint8List? compressed = _compressImageToTarget(image, originalSize);
+        if (compressed != null) {
+          fullFileBase64 = base64Encode(compressed);
+        }
+        // If compression failed (returned null), fullFileBase64 stays null
       }
-      // If compression failed (returned null), fullFileBase64 stays null
     }
+    // else: keepFullSize is false, so fullFileBase64 stays null (thumbnail only)
 
     return _ProcessedFile(
       thumbnail: thumbnailBase64,
@@ -141,6 +149,7 @@ class AttachmentService {
   static Future<_ProcessedFile> _processPdf(
     Uint8List bytes,
     int originalSize,
+    bool keepFullSize,
   ) async {
     try {
       // Render first page of PDF to image
@@ -166,9 +175,9 @@ class AttachmentService {
       // Generate and compress thumbnail
       String thumbnailBase64 = _generateThumbnailBase64(imgData);
 
-      // Store full PDF if < 1MB (can't compress PDFs further)
+      // Store full PDF if preference is enabled and size permits
       String? fullFileBase64;
-      if (originalSize < maxCompressedFileSize) {
+      if (keepFullSize && originalSize < maxCompressedFileSize) {
         fullFileBase64 = base64Encode(bytes);
       }
 

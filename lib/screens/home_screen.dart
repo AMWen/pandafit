@@ -17,6 +17,7 @@ import '../data/widgets/core_workout_card_widget.dart';
 import '../data/widgets/activity_card_widget.dart';
 import '../data/widgets/add_exercise_card_widget.dart';
 import '../data/widgets/inline_youtube_player.dart';
+import '../data/widgets/attachment_options_dialog.dart';
 import '../utils/ui_helpers.dart';
 import 'history_screen.dart';
 import 'workout_settings_screen.dart';
@@ -1137,6 +1138,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         activity: currentActivities[index],
                         onEdit: () => _editActivity(index),
                         onDelete: () => _removeActivity(index),
+                        onAttachmentsChanged: (newAttachments) {
+                          setState(() {
+                            currentActivities[index] = currentActivities[index].replaceAttachments(
+                              newAttachments.isEmpty ? null : newAttachments,
+                            );
+                          });
+                        },
                       );
                     },
                   ),
@@ -1374,9 +1382,12 @@ class _EditActivityDialogState extends State<_EditActivityDialog> {
   }
 
   Future<void> _pickAttachment() async {
+    final keepFullSize = await showAttachmentOptionsDialog(context);
+    if (keepFullSize == null) return;
+
     setState(() => _isProcessingAttachment = true);
     try {
-      final attachment = await AttachmentService.pickAttachment();
+      final attachment = await AttachmentService.pickAttachment(keepFullSize: keepFullSize);
       if (attachment != null && mounted) {
         final attachmentsToAdd = AttachmentService.tryAddAttachment(
           context: context,

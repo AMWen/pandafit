@@ -9,6 +9,7 @@ import '../services/activity_preferences_service.dart';
 import '../services/attachment_service.dart';
 import '../../utils/ui_helpers.dart';
 import 'attachment_viewer.dart';
+import 'attachment_options_dialog.dart';
 
 class ActivityCard extends StatelessWidget {
   final Activity activity;
@@ -192,9 +193,12 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
   }
 
   Future<void> _pickAttachment() async {
+    final keepFullSize = await showAttachmentOptionsDialog(context);
+    if (keepFullSize == null) return;
+
     setState(() => _isProcessingAttachment = true);
     try {
-      final attachment = await AttachmentService.pickAttachment();
+      final attachment = await AttachmentService.pickAttachment(keepFullSize: keepFullSize);
       if (attachment != null && mounted) {
         final attachmentsToAdd = AttachmentService.tryAddAttachment(
           context: context,
@@ -223,6 +227,24 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
     setState(() {
       _attachments.removeAt(index);
     });
+  }
+
+  void _viewAttachments() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AttachmentViewer(
+          attachments: _attachments,
+          activityName: _nameController.text.isEmpty ? 'Activity' : _nameController.text,
+          onAttachmentsChanged: (updatedAttachments) {
+            setState(() {
+              _attachments.clear();
+              _attachments.addAll(updatedAttachments);
+            });
+          },
+        ),
+      ),
+    );
   }
 
   void submitActivity() {
@@ -430,67 +452,71 @@ class _ActivityInputWidgetState extends State<ActivityInputWidget> {
                 SizedBox(height: 8),
                 ...List.generate(_attachments.length, (index) {
                   final attachment = _attachments[index];
-                  return Container(
-                    margin: EdgeInsets.only(bottom: 8),
-                    padding: EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: secondaryColor.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        // Thumbnail
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(4),
-                            color: Colors.white,
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: Image.memory(
-                              base64Decode(attachment.thumbnailBase64),
-                              fit: BoxFit.cover,
+                  return InkWell(
+                    onTap: () => _viewAttachments(),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      margin: EdgeInsets.only(bottom: 8),
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: secondaryColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          // Thumbnail
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              color: Colors.white,
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: Image.memory(
+                                base64Decode(attachment.thumbnailBase64),
+                                fit: BoxFit.cover,
+                              ),
                             ),
                           ),
-                        ),
-                        SizedBox(width: 12),
-                        // File info
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                attachment.fileName,
-                                style: TextStyle(
-                                  color: secondaryColor,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                          SizedBox(width: 12),
+                          // File info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  attachment.fileName,
+                                  style: TextStyle(
+                                    color: secondaryColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                '${AttachmentService.formatFileSize(attachment.originalSizeBytes)}${!attachment.isFullFileInExcel ? ' (thumbnail only)' : ''}',
-                                style: TextStyle(
-                                  color: secondaryColor.withValues(alpha: 0.6),
-                                  fontSize: 11,
+                                SizedBox(height: 2),
+                                Text(
+                                  '${AttachmentService.formatFileSize(attachment.originalSizeBytes)}${!attachment.isFullFileInExcel ? ' (thumbnail only)' : ''}',
+                                  style: TextStyle(
+                                    color: secondaryColor.withValues(alpha: 0.6),
+                                    fontSize: 11,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        // Remove button
-                        IconButton(
-                          icon: Icon(Icons.close, size: 18, color: ActionColors.delete),
-                          onPressed: () => _removeAttachment(index),
-                          padding: EdgeInsets.all(4),
-                          constraints: BoxConstraints(),
-                        ),
-                      ],
+                          // Remove button
+                          IconButton(
+                            icon: Icon(Icons.close, size: 18, color: ActionColors.delete),
+                            onPressed: () => _removeAttachment(index),
+                            padding: EdgeInsets.all(4),
+                            constraints: BoxConstraints(),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }),

@@ -18,6 +18,7 @@ import '../data/services/activity_preferences_service.dart';
 import '../data/widgets/panda_streak_widget.dart';
 import '../data/widgets/attachment_viewer.dart';
 import '../data/widgets/exercise_selection_dialog.dart';
+import '../data/widgets/attachment_options_dialog.dart';
 import '../utils/ui_helpers.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -1497,9 +1498,12 @@ class _WorkoutHistoryDialogState extends State<_WorkoutHistoryDialog> with Singl
                       SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: _isProcessingAttachment ? null : () async {
+                          final keepFullSize = await showAttachmentOptionsDialog(context);
+                          if (keepFullSize == null) return;
+
                           setState(() => _isProcessingAttachment = true);
                           try {
-                            final attachment = await AttachmentService.pickAttachment();
+                            final attachment = await AttachmentService.pickAttachment(keepFullSize: keepFullSize);
                             if (attachment != null && mounted) {
                               final existingAttachments = activity.attachments ?? [];
                               final attachmentsToAdd = AttachmentService.tryAddAttachment(
@@ -2237,9 +2241,12 @@ class _AddActivityDialogState extends State<_AddActivityDialog> {
   }
 
   Future<void> _pickAttachment() async {
+    final keepFullSize = await showAttachmentOptionsDialog(context);
+    if (keepFullSize == null) return;
+
     setState(() => _isProcessingAttachment = true);
     try {
-      final attachment = await AttachmentService.pickAttachment();
+      final attachment = await AttachmentService.pickAttachment(keepFullSize: keepFullSize);
       if (attachment != null && mounted) {
         final attachmentsToAdd = AttachmentService.tryAddAttachment(
           context: context,

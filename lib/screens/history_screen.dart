@@ -181,8 +181,7 @@ class HistoryScreenState extends State<HistoryScreen>
                   await db.delete('workout_logs');
                   if (mounted) {
                     // Refresh both calendar and table data
-                    _loadWorkoutDates();
-                    _loadProgressData();
+                    refreshData();
                     showSnackbar(context, 'Workout history cleared');
                   }
                 }
@@ -300,8 +299,8 @@ class HistoryScreenState extends State<HistoryScreen>
           activities: activities,
           initialTabIndex: initialTabIndex,
           onWorkoutChanged: () {
-            // Refresh calendar dots immediately when workout changes
-            _loadWorkoutDates();
+            // Refresh calendar dots and progress data immediately when workout changes
+            refreshData();
             // Refresh streak display
             _streakKey.currentState?.refresh();
             // Only refresh home screen if TODAY's date was modified
@@ -441,7 +440,7 @@ class HistoryScreenState extends State<HistoryScreen>
   Widget _buildCalendarView() {
     return RefreshIndicator(
       onRefresh: () async {
-        await _loadWorkoutDates();
+        refreshData();
       },
       child: SingleChildScrollView(
         physics: AlwaysScrollableScrollPhysics(),
@@ -993,7 +992,7 @@ class HistoryScreenState extends State<HistoryScreen>
 
       // Refresh progress data to update table view
       if (mounted) {
-        _loadProgressData();
+        refreshData();
       }
     } catch (e) {
       if (mounted) {
@@ -1015,7 +1014,7 @@ class HistoryScreenState extends State<HistoryScreen>
     );
 
     // Refresh progress data to show changes
-    await _loadProgressData();
+    refreshData();
   }
 
   Widget _buildAttachmentsCell(Activity activity) {

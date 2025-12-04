@@ -37,7 +37,8 @@ class AttachmentService {
   }
 
   // Warning message when thumbnail-only is added
-  static const String thumbnailOnlyWarning = 'Attachment added (preview only) - full file too large for database limit';
+  static const String thumbnailOnlyWarning =
+      'Attachment added (preview only) - full file too large for database limit';
 
   // Pick and process a file attachment
   // Returns null if user cancels or error occurs
@@ -139,10 +140,7 @@ class AttachmentService {
     }
     // else: keepFullSize is false, so fullFileBase64 stays null (thumbnail only)
 
-    return _ProcessedFile(
-      thumbnail: thumbnailBase64,
-      fullFile: fullFileBase64,
-    );
+    return _ProcessedFile(thumbnail: thumbnailBase64, fullFile: fullFileBase64);
   }
 
   // Process PDF file: generate thumbnail from first page
@@ -164,12 +162,15 @@ class AttachmentService {
       final firstPage = await pageImageStream.first;
 
       // Convert PDF raster image to img.Image
+      // Get properly aligned byte buffer from pixels
+      final pixelBytes = Uint8List.fromList(firstPage.pixels);
+
       final imgData = img.Image.fromBytes(
         width: firstPage.width,
         height: firstPage.height,
-        bytes: firstPage.pixels.buffer,
-        format: img.Format.uint8,
-        numChannels: 4, // RGBA
+        bytes: pixelBytes.buffer,
+        numChannels: 4,
+        order: img.ChannelOrder.rgba,
       );
 
       // Generate and compress thumbnail
@@ -181,10 +182,7 @@ class AttachmentService {
         fullFileBase64 = base64Encode(bytes);
       }
 
-      return _ProcessedFile(
-        thumbnail: thumbnailBase64,
-        fullFile: fullFileBase64,
-      );
+      return _ProcessedFile(thumbnail: thumbnailBase64, fullFile: fullFileBase64);
     } catch (e) {
       // If PDF rendering fails, create a placeholder thumbnail
       throw Exception('Failed to render PDF: $e');
@@ -223,7 +221,7 @@ class AttachmentService {
     }
 
     // Try PNG compression only if JPEG didn't fit
-    Uint8List pngCompressed = img.encodePng(image, level: 8);  // 8 is pretty high compression
+    Uint8List pngCompressed = img.encodePng(image, level: 8); // 8 is pretty high compression
 
     // If PNG fits, use it
     if (pngCompressed.length <= maxCompressedFileSize) {
@@ -308,8 +306,8 @@ class AttachmentService {
     ActivityAttachment newAttachment,
   ) {
     final currentSize = calculateTotalAttachmentSize(existingAttachments);
-    final newSize = newAttachment.thumbnailBase64.length +
-        (newAttachment.fullFileBase64?.length ?? 0);
+    final newSize =
+        newAttachment.thumbnailBase64.length + (newAttachment.fullFileBase64?.length ?? 0);
     return (currentSize + newSize) <= maxTotalAttachmentsBase64Size;
   }
 
@@ -360,8 +358,5 @@ class _ProcessedFile {
   final String thumbnail;
   final String? fullFile;
 
-  _ProcessedFile({
-    required this.thumbnail,
-    this.fullFile,
-  });
+  _ProcessedFile({required this.thumbnail, this.fullFile});
 }

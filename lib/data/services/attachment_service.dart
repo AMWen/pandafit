@@ -173,8 +173,19 @@ class AttachmentService {
         order: img.ChannelOrder.rgba,
       );
 
+      // Create a white background
+      final whiteBackground = img.Image(
+        width: firstPage.width,
+        height: firstPage.height,
+        numChannels: 4,
+      );
+      img.fill(whiteBackground, color: img.ColorRgb8(255, 255, 255));
+
+      // Composite your page on top of the white background
+      final composited = img.compositeImage(whiteBackground, imgData, dstX: 0, dstY: 0);
+
       // Generate and compress thumbnail
-      String thumbnailBase64 = _generateThumbnailBase64(imgData);
+      String thumbnailBase64 = _generateThumbnailBase64(composited);
 
       // Store full PDF if preference is enabled and size permits
       String? fullFileBase64;

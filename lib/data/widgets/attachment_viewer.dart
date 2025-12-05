@@ -160,7 +160,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
               itemBuilder: (context, index) {
                 final attachment = _attachments[index];
                 return _AttachmentCard(
-                  key: ValueKey(attachment.attachedDate.millisecondsSinceEpoch),
+                  key: ValueKey('${attachment.attachedDate.millisecondsSinceEpoch}_$index'),
                   attachment: attachment,
                   onTap: () => _viewAttachment(context, index),
                   onDelete: isEditable ? () => _deleteAttachment(index) : null,
@@ -677,14 +677,20 @@ class _AttachmentDeleteDialog extends StatelessWidget {
               child: Text('Cancel'),
             ),
             // Show "Remove full file" option if attachment has full file
-            if (hasFullFile && onRemoveFullFile != null)
+            if (hasFullFile && onRemoveFullFile != null) ...[
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                   onRemoveFullFile!();
                 },
-                child: Text('Remove full file', style: TextStyle(color: Colors.orange)),
+                child: Text(
+                  'Remove\nfull file',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.orange),
+                ),
               ),
+              SizedBox(width: 8),
+            ],
             FilledButton(
               onPressed: () {
                 Navigator.pop(context);
